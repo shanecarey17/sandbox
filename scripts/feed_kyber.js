@@ -13,7 +13,9 @@ const coinMarketCapApiKey = '50615d1e-cf23-4931-a566-42f0123bd7b8';
 
 const wallet = ethers.Wallet.fromMnemonic(mnemonic).connect(ethers.provider);
 
-const kyberPrecision = 10**18;
+const kyberPrecision = 18;
+
+const TEN = ethers.BigNumber.from(10);
 
 exchRateCache = new Map();
 
@@ -132,12 +134,30 @@ async function checkCache(src, dst, rate) {
 
             let srcPrice = await getTokenPrice(srcSymbol); // TODO organize coins better
 
-            let srcAmount = ethers.BigNumber.from(10).pow(srcDecimals).mul(7);
+            if (srcPrice == 0) {
+                continue;
+            }
+
+            let srcTokens = 1 / srcPrice * 10; // Change 10 to adjust amount
+            let srcAmount = TEN.pow(srcDecimals).mul(Math.round(srcTokens));
+
+            let dstAmount;
+
+            // Careful of overflow
+            if (dstDecimals >= srcDecimals) {
+                dstAmount = srcAmount.mul(exchRate).mul(TEN.pow(dstDecimals - srcDecimals)).div(TEN.pow(kyberPrecision));
+            } else {
+                dstAmount = srcAmount.mul(exchRate).div(TEN.pow(srcDecimals - dstDecimals + kyberPrecision));
+            }
 
             if (!exchRateCache.has(dst) || !exchRateCache.get(dst).has(src)) {
                 updateCache(dst, src, null);
 
-                let result = await kyberContract.getExpectedRate(dst, src, srcAmount);
+                let result = await kyberContract.getExpectedRate(dst, src, dstAmount);
+
+                if (result.expectedRate == 0) {
+                    continue;
+                }
 
                 updateCache(dst, src, result.expectedRate);
 
@@ -150,15 +170,12 @@ async function checkCache(src, dst, rate) {
                 continue;
             }
 
-            let dstAmount;
-            let srcReturn = 0;
+            let srcReturn;
 
             if (dstDecimals >= srcDecimals) {
-                dstAmount = srcAmount * exchRate * (10**(dstDecimals - srcDecimals)) / kyberPrecision;
-                srcReturn = dstAmount * revExchRate / (kyberPrecision * (10**(dstDecimals - srcDecimals)));
+                srcReturn = dstAmount.mul(revExchRate).div(TEN.pow(dstDecimals - srcDecimals + kyberPrecision));
             } else {
-                dstAmount = srcAmount * exchRate / (kyberPrecision * (10**(srcDecimals - dstDecimals)));
-                srcReturn = dstAmount * revExchRate * (10**(dstDecimals - srcDecimals)) / kyberPrecision;
+                srcReturn = dstAmount.mul(revExchRate).mul(TEN.pow(dstDecimals - srcDecimals)).div(TEN.pow(kyberPrecision));
             }
 
             let srcDenom = 10**srcDecimals;
@@ -167,7 +184,10 @@ async function checkCache(src, dst, rate) {
             let srcProfit = (srcReturn - srcAmount) / srcDenom;
             let srcProfitUSD = srcPrice * srcProfit;
 
-            console.log(`   ${srcAmount / srcDenom} ${srcSymbol} (${srcDecimals}) ($${srcPrice.toFixed(2)})`);
+            let srcAmountUSDDisplay = (srcPrice * srcTokens).toFixed(2);
+            let srcTokenUSDDisplay = srcPrice.toFixed(2);
+
+            console.log(`   ${srcAmount / srcDenom} ${srcSymbol} (${srcDecimals}) ($${srcAmountUSDDisplay}@${srcTokenUSDDisplay}/ea.)`);
             console.log(`=> @${exchRate / dstDenom} => ${dstAmount / dstDenom} ${dstSymbol} (${dstDecimals})`);
             console.log(`=> @${revExchRate / srcDenom} => ${srcReturn / srcDenom} ${srcSymbol}`);
 
@@ -201,16 +221,14 @@ const run = async () => {
         let srcDecimals = await getTokenDecimals(src);
         let dstDecimals = await getTokenDecimals(dst);
 
-        let exchRate;
+        var exchRate;
 
         // https://github.com/KyberNetwork/smart-contracts/blob/60245913be1574c581a567ea881e3f6e3daf0b20/contracts/Utils.sol#L34
         if (dstDecimals >= srcDecimals) {
-            exchRate = usrDstDelta * kyberPrecision / (usrSrcDelta * (10**(dstDecimals - srcDecimals)));
+            exchRate = usrDstDelta.mul(TEN.pow(kyberPrecision)).div(usrSrcDelta).div(TEN.pow(dstDecimals - srcDecimals));
         } else {
-            exchRate = usrDstDelta * kyberPrecision * (10**(srcDecimals - dstDecimals)) / usrSrcDelta;
+            exchRate = usrDstDelta.mul((TEN.pow(srcDecimals - dstDecimals + kyberPrecision))).div(usrSrcDelta);
         }
-
-        console.log(`${time.toISOString()} ${sender} ${srcSymbol} ${dstSymbol} ${usrSrcDelta} ${usrDstDelta} ${exchRate}`);
 
         await checkCache(src, dst, exchRate);
     });
