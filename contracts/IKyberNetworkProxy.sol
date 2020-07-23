@@ -16,6 +16,8 @@ interface IKyberNetworkProxyInterface {
 
     function tradeWithHint(ERC20 src, uint srcAmount, ERC20 dest, address destAddress, uint maxDestAmount,
         uint minConversionRate, address walletId, bytes calldata hint) external payable returns(uint);
+
+    event ExecuteTrade(address indexed trader, ERC20 src, ERC20 dest, uint actualSrcAmount, uint actualDestAmount);
 }
 
 interface SimpleNetworkInterface {

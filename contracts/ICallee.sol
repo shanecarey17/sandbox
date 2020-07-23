@@ -23,8 +23,8 @@ interface ICallee {
      */
     function callFunction(
         address sender,
-        Account.Info memory accountInfo,
-        bytes memory data
+        Account.Info calldata accountInfo,
+        bytes calldata data
     )
         external;
 }

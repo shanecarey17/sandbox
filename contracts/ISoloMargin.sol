@@ -253,7 +253,7 @@ interface ISoloMargin {
 
     function ownerSetSpreadPremium(
         uint256 marketId,
-        Decimal.D256 memory spreadPremium
+        Decimal.D256 calldata spreadPremium
     ) external;
 
     function getIsGlobalOperator(address operator) external view returns (bool);
@@ -266,7 +266,7 @@ interface ISoloMargin {
     function ownerSetInterestSetter(uint256 marketId, address interestSetter)
         external;
 
-    function getAccountValues(Account.Info memory account)
+    function getAccountValues(Account.Info calldata account)
         external
         view
         returns (Monetary.Value memory, Monetary.Value memory);
@@ -292,26 +292,26 @@ interface ISoloMargin {
         external
         returns (uint256);
 
-    function ownerSetMinBorrowedValue(Monetary.Value memory minBorrowedValue)
+    function ownerSetMinBorrowedValue(Monetary.Value calldata minBorrowedValue)
         external;
 
-    function ownerSetLiquidationSpread(Decimal.D256 memory spread) external;
+    function ownerSetLiquidationSpread(Decimal.D256 calldata spread) external;
 
-    function ownerSetEarningsRate(Decimal.D256 memory earningsRate) external;
+    function ownerSetEarningsRate(Decimal.D256 calldata earningsRate) external;
 
     function getIsLocalOperator(address owner, address operator)
         external
         view
         returns (bool);
 
-    function getAccountPar(Account.Info memory account, uint256 marketId)
+    function getAccountPar(Account.Info calldata account, uint256 marketId)
         external
         view
         returns (Types.Par memory);
 
     function ownerSetMarginPremium(
         uint256 marketId,
-        Decimal.D256 memory marginPremium
+        Decimal.D256 calldata marginPremium
     ) external;
 
     function getMarginRatio() external view returns (Decimal.D256 memory);
@@ -325,7 +325,7 @@ interface ISoloMargin {
 
     function getRiskParams() external view returns (Storage.RiskParams memory);
 
-    function getAccountBalances(Account.Info memory account)
+    function getAccountBalances(Account.Info calldata account)
         external
         view
         returns (address[] memory, Types.Par[] memory, Types.Wei[] memory);
@@ -334,7 +334,7 @@ interface ISoloMargin {
 
     function getMinBorrowedValue() external view returns (Monetary.Value memory);
 
-    function setOperators(OperatorArg[] memory args) external;
+    function setOperators(OperatorArg[] calldata args) external;
 
     function getMarketPrice(uint256 marketId) external view returns (address);
 
@@ -350,13 +350,13 @@ interface ISoloMargin {
         address token,
         address priceOracle,
         address interestSetter,
-        Decimal.D256 memory marginPremium,
-        Decimal.D256 memory spreadPremium
+        Decimal.D256 calldata marginPremium,
+        Decimal.D256 calldata spreadPremium
     ) external;
 
     function operate(
-        Account.Info[] memory accounts,
-        Actions.ActionArgs[] memory actions
+        Account.Info[] calldata accounts,
+        Actions.ActionArgs[] calldata actions
     ) external;
 
     function getMarketWithInfo(uint256 marketId)
@@ -369,11 +369,11 @@ interface ISoloMargin {
             Interest.Rate memory
         );
 
-    function ownerSetMarginRatio(Decimal.D256 memory ratio) external;
+    function ownerSetMarginRatio(Decimal.D256 calldata ratio) external;
 
     function getLiquidationSpread() external view returns (Decimal.D256 memory);
 
-    function getAccountWei(Account.Info memory account, uint256 marketId)
+    function getAccountWei(Account.Info calldata account, uint256 marketId)
         external
         view
         returns (Types.Wei memory);
@@ -398,7 +398,7 @@ interface ISoloMargin {
         view
         returns (Interest.Index memory);
 
-    function getAccountStatus(Account.Info memory account)
+    function getAccountStatus(Account.Info calldata account)
         external
         view
         returns (uint8);
@@ -420,7 +420,7 @@ interface ISoloMargin {
 
     function transferOwnership(address newOwner) external;
 
-    function getAdjustedAccountValues(Account.Info memory account)
+    function getAdjustedAccountValues(Account.Info calldata account)
         external
         view
         returns (Monetary.Value memory, Monetary.Value memory);
