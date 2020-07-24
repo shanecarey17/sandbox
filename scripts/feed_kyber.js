@@ -140,7 +140,7 @@ async function getExchangeRate(src, dst, srcAmount) {
         let result = await kyberContract.getExpectedRate(src, dst, srcAmount);
 
         if (result.expectedRate == 0) {
-            throw new Error('Unable to fetch rate');
+            return null; //throw new Error('Unable to fetch rate');
         }
 
         updateCache(src, dst, result.expectedRate);
@@ -172,7 +172,9 @@ async function checkCache(src, dst, rate) {
 
             let srcPrice = await getTokenPrice(srcSymbol); // TODO organize coins better
 
-            let srcTokens = srcPrice == 0 ? 10 : (1 / srcPrice * 10);
+            let srcValueUSD = 100;
+            let fallbackTokensCount = 300;
+            let srcTokens = srcPrice == 0 ? fallbackTokensCount : (1 / srcPrice * srcValueUSD);
 
             let srcAmount = TEN.pow(srcDecimals).mul(Math.round(srcTokens));
 
@@ -207,6 +209,10 @@ async function checkCache(src, dst, rate) {
 
                 let srcProfit = (srcReturn - srcAmount) / srcDenom;
                 let srcProfitUSD = srcPrice * srcProfit;
+
+                if (srcProfitUSD <= 0) {
+                    continue;
+                }
 
                 let srcAmountUSDDisplay = (srcPrice * srcTokens.toFixed(2)).toFixed(2);
                 let srcTokenUSDDisplay = srcPrice.toFixed(2);
