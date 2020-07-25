@@ -1,0 +1,6 @@
+.secret
+artifacts/
+build/
+cache/
+log/
+node_modules/
