@@ -98,14 +98,13 @@ Model.prototype.findBestRate = function() {
     var bestProfit = 0;
 
     for (const [src, dsts] of this.graph) {
-        let srcValueUSD = 100;
-        let fallbackTokensCount = 300;
-        let srcTokens = src.price == 0 ? fallbackTokensCount : (1 / src.price * srcValueUSD);
-        let srcAmount = constants.TEN.pow(src.decimals).mul(Math.ceil(srcTokens)); // Dont round down to 0
-
-        if (srcAmount == 0) {
-            debugger;
+        if (src.price == 0) {
+            continue;
         }
+
+        let srcValueUSD = 100;
+
+        let srcAmount = ethers.BigNumber.from(String(Math.floor(srcValueUSD / src.price * (10**src.decimals)))); // Careful
 
         var bestRoute = this.calcBestRate(src, src, srcAmount, 2, []);
 
@@ -116,24 +115,22 @@ Model.prototype.findBestRate = function() {
         assert(bestRoute[0].src == bestRoute[bestRoute.length - 1].dst);
 
         bestRoute.forEach( function(trade) {
-            let srcAmountFmt = trade.src.formatAmount(trade.srcAmount);
-            let dstAmountFmt = trade.dst.formatAmount(trade.dstAmount);
-            let exchRateFmt = (trade.exchRate / (10**18)).toFixed(constants.DISPLAY_DECIMALS);
+            let srcAmountFmt = trade.src.formatAmount(trade.srcAmount).padEnd(constants.DISPLAY_PADDING);
+            let dstAmountFmt = trade.dst.formatAmount(trade.dstAmount).padEnd(constants.DISPLAY_PADDING);
+            let exchRateFmt = (trade.exchRate / (10**18)).toFixed(constants.DISPLAY_DECIMALS).padEnd(constants.DISPLAY_PADDING);
 
             console.log(`=> ${srcAmountFmt}\t${trade.src.symbol}\t@${exchRateFmt}\t=>\t${dstAmountFmt}\t${trade.dst.symbol}`);
         });
 
         var profit = bestRoute[bestRoute.length - 1].dstAmount - bestRoute[0].srcAmount;
-        var profitFmt = src.formatAmount(profit);
+        var profitFmt = src.formatAmount(profit).padEnd(constants.DISPLAY_PADDING);
         var profitUSDFmt = (Number(profitFmt) * src.price).toFixed(2);
 
-        // https://stackoverflow.com/questions/9781218/how-to-change-node-jss-console-font-color
-        var colorFmt = profit > 0 ? '\x1b[32m%s\x1b[0m' : '\x1b[31m%s\x1b[0m';
+        var colorFmt = profit > 0 ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
         console.log(colorFmt, `++ ${profitFmt}\t${src.symbol}\t$${profitUSDFmt}`);
-        console.log(`-------------------------------------------------------`);
-    }
 
-    
+        console.log(`--------------------------------------------------------------------------------`);
+    }    
 }
 
 module.exports = {
