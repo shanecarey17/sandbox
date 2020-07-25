@@ -5,8 +5,6 @@ const tokens = require('./tokens.js');
 const wallet = require('./wallet.js');
 const constants = require('./constants.js');
 
-const KYBER_PRECISION = 18;
-
 function KyberSwap(contract) {
     this.contract = contract;
 }
@@ -19,9 +17,9 @@ KyberSwap.prototype.onSwap = function(callback) {
         let exchRate;
 
         if (dst.decimals.gte(src.decimals)) {
-            exchRate = usrDstDelta.mul(constants.TEN.pow(KYBER_PRECISION)).div(usrSrcDelta).div(constants.TEN.pow(dst.decimals - src.decimals));
+            exchRate = usrDstDelta.mul(constants.TEN.pow(constants.KYBER_PRECISION)).div(usrSrcDelta).div(constants.TEN.pow(dst.decimals - src.decimals));
         } else {
-            exchRate = usrDstDelta.mul((constants.TEN.pow(src.decimals - dst.decimals + KYBER_PRECISION))).div(usrSrcDelta);
+            exchRate = usrDstDelta.mul((constants.TEN.pow(src.decimals - dst.decimals + constants.KYBER_PRECISION))).div(usrSrcDelta);
         }
 
         callback(this, src, dst, exchRate);

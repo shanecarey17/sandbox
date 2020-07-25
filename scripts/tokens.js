@@ -11,8 +11,6 @@ const coinMarketCapApiKey = '50615d1e-cf23-4931-a566-42f0123bd7b8';
 const etherscanEndpoint = 'http://api.etherscan.io';
 const etherscanApiKey = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
 
-const ETH_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
-
 // Token
 
 function Token(contract, symbol, decimals, price) {
@@ -62,11 +60,11 @@ function TokenFactory() {
         }
 
         // TODO, this isnt a great way to deal with kyber's ETH address
-        var contract = {address: ETH_ADDRESS};
+        var contract = {address: constants.ETH_ADDRESS};
         var symbol = 'ETH';
         var decimals = ethers.BigNumber.from(18);
 
-        if (address != ETH_ADDRESS) {
+        if (address != constants.ETH_ADDRESS) {
             contract = await ethers.getContractAt('ERC20', address, wallet);
             decimals = await contract.decimals();
             symbol = '';

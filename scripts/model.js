@@ -3,8 +3,6 @@ const assert = require('assert');
 
 const constants = require('./constants');
 
-const KYBER_PRECISION = 18;
-
 function Model(exchange) {
     this.graph = new Map();
     this.exchange = exchange;
@@ -23,11 +21,12 @@ Model.prototype.updateRate = function(exchange, src, dst, exchRate) {
 };
 
 Model.prototype.trade = function(src, dst, exchRate, srcAmount) {
+    // https://github.com/KyberNetwork/smart-contracts/blob/master/contracts/Utils.sol
     // Returns dst amount
     if (dst.decimals.gte(src.decimals)) {
-        return srcAmount.mul(exchRate).mul(constants.TEN.pow(dst.decimals - src.decimals)).div(constants.TEN.pow(KYBER_PRECISION));
+        return srcAmount.mul(exchRate).mul(constants.TEN.pow(dst.decimals - src.decimals)).div(constants.TEN.pow(constants.KYBER_PRECISION));
     } else {
-        return srcAmount.mul(exchRate).div(constants.TEN.pow(src.decimals - dst.decimals + KYBER_PRECISION));
+        return srcAmount.mul(exchRate).div(constants.TEN.pow(src.decimals - dst.decimals + constants.KYBER_PRECISION));
     }
 }
 
@@ -63,9 +62,9 @@ Model.prototype.calcBestRate = function(src0, src, srcAmount, n, route) {
     var bestReturn = src == src0 ? srcAmount : route[0].srcAmount; // Must exceed starting amount
 
     for (const [dst, exchRate] of this.graph.get(src)) {
-        if (route.findIndex(function(t) { return t.src == dst; }) != -1) {
-            continue;
-        }
+        // if (route.findIndex(function(t) { return t.src == dst; }) != -1) {
+        //     continue;
+        // }
 
         var dstAmount = this.trade(src, dst, exchRate, srcAmount);
 
@@ -102,11 +101,11 @@ Model.prototype.findBestRate = function() {
             continue;
         }
 
-        let srcValueUSD = 100;
+        let srcValueUSD = constants.START_VALUE_USD;
 
-        let srcAmount = ethers.BigNumber.from(String(Math.floor(srcValueUSD / src.price * (10**src.decimals)))); // Careful
+        let srcAmount = ethers.BigNumber.from(BigInt(Math.floor(srcValueUSD / src.price * (10**src.decimals))).toString()); // Careful
 
-        var bestRoute = this.calcBestRate(src, src, srcAmount, 2, []);
+        var bestRoute = this.calcBestRate(src, src, srcAmount, constants.PATH_LENGTH, []);
 
         if (bestRoute.length == 0) {
             continue;
