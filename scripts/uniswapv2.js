@@ -1,4 +1,6 @@
+const ethers = require("@nomiclabs/buidler").ethers;
 
+const tokens = require('./tokens.js');
 
 const uniswapFactoryAddress = '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f';
 
@@ -17,7 +19,7 @@ async function getUniswapPairs() {
         console.log('Could not load uniswap pairs from file, fetching from network');
     }
 
-    let persistedData = []
+    let persistedData = [];
 
     let uniswapFactory = await ethers.getContractAt('IUniswapV2Factory', uniswapFactoryAddress, wallet);
 
