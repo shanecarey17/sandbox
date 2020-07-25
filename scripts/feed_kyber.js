@@ -2,8 +2,10 @@ const ethers = require("@nomiclabs/buidler").ethers;
 const axios = require('axios');
 const legos = require('@studydefi/money-legos').legos;
 
-const fs = require('fs');
-const mnemonic = fs.readFileSync('.secret', 'utf8').toString().trim();
+const wallet = require('./wallet.js');
+const tokens = require('./tokens.js');
+const model = require('./model.js');
+const kyber = require('./kyber.js');
 
 const etherscanEndpoint = 'http://api.etherscan.io';
 const etherscanApiKey = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
@@ -11,263 +13,221 @@ const etherscanApiKey = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
 const coinMarketCapEndpoint = 'https://pro-api.coinmarketcap.com';
 const coinMarketCapApiKey = '50615d1e-cf23-4931-a566-42f0123bd7b8';
 
-const wallet = ethers.Wallet.fromMnemonic(mnemonic).connect(ethers.provider);
-
 const kyberPrecision = 18;
 
 const TEN = ethers.BigNumber.from(10);
 
 exchRateCache = new Map();
 
-tokenNameCache = new Map();
-tokenNameCache.set('0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE', 'Eth');
-
-tokenDecimalsCache = new Map();
-tokenDecimalsCache.set('0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE', ethers.BigNumber.from(18));
-
-tokenPriceCache = new Map();
+uniswapPairCache = new Map();
 
 let kyberContract; // Set in main()
 
-function sleep(s) {
-    return new Promise(resolve => setTimeout(resolve, s * 1000));
-}
+// https://uniswap.org/docs/v2/smart-contracts/factory
+// const uniswapFactoryAddress = '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f';
 
-async function fetchTokenPrices() {
-    while (true) {
-        let url = `${coinMarketCapEndpoint}/v1/cryptocurrency/listings/latest`
-        let response = await axios.get(url, {
-            headers: {
-                'X-CMC_PRO_API_KEY': coinMarketCapApiKey
-            }
-        });
+// function updateCache(src, dst, rate) {
+//     if (!exchRateCache.has(src)) {
+//         exchRateCache.set(src, new Map());
+//     }
 
-        let data = response.data.data;
+//     exchRateCache.get(src).set(dst, rate);
+// }
 
-        for (let coin of data) {
-            tokenPriceCache.set(coin.symbol, coin.quote.USD.price);
-        }
+// async function simulateKyberTrade(src, dst, exchRate, srcAmount) {
+//     // Returns dst amount
+//     if (dst.decimals.gte(src.decimals)) {
+//         return srcAmount.mul(exchRate).mul(TEN.pow(dst.decimals - src.decimals)).div(TEN.pow(kyberPrecision));
+//     } else {
+//         return srcAmount.mul(exchRate).div(TEN.pow(src.decimals - dst.decimals + kyberPrecision));
+//     }
+// }
 
-        await sleep(120);
-    }
-}
+// async function getExchangeRate(src, dst, srcAmount) {
+//     if (!exchRateCache.has(src) || !exchRateCache.get(src).has(dst)) {
+//         updateCache(src, dst, null);
 
-async function getTokenPrice(tokenSymbol) {
-    if (tokenPriceCache.has(tokenSymbol)) {
-        return tokenPriceCache.get(tokenSymbol);
-    }
+//         let result = await kyberContract.getExpectedRate(src.contract.address, dst.contract.address, srcAmount);
 
-    return 0
-}
+//         if (result.expectedRate == 0) {
+//             return null; //throw new Error('Unable to fetch rate');
+//         }
 
-async function getTokenDecimals(token) {
-    if (tokenDecimalsCache.has(token)) {
-        return tokenDecimalsCache.get(token);
-    }
+//         updateCache(src, dst, result.expectedRate);
 
-    let tokenContract = await ethers.getContractAt('ERC20', token, wallet);
+//         return result.expectedRate;
+//     }
 
-    let decimals;
+//     return exchRateCache.get(src).get(dst);
+// }
 
-    try {
-        decimals = await tokenContract.decimals();
-    } catch (err) {
-        console.log(`FAILED TO GET DECIMALS FOR ${token}, default 18 will be used`);
+// async function checkCache(src, dst, rate) {
+//     updateCache(src, dst, rate);
 
-        decimals = ethers.BigNumber.from(18);
-    }
+//     for (const [src, dstMap] of exchRateCache.entries()) {
+//         for (const [dst, exchRate] of dstMap.entries()) {
+//             if (exchRate == null) {
+//                 continue;
+//             }
 
-    tokenDecimalsCache.set(token, decimals);
+//             if (!exchRateCache.has(dst)) {
+//                 continue;
+//             }
 
-    return decimals;
-}
+//             let srcValueUSD = 100;
+//             let fallbackTokensCount = 300;
+//             let srcTokens = src.price == 0 ? fallbackTokensCount : (1 / src.price * srcValueUSD);
 
-async function getTokenName(token) {    
-    if (tokenNameCache.has(token)) {
-        return tokenNameCache.get(token);
-    }
+//             let srcAmount = TEN.pow(src.decimals).mul(Math.round(srcTokens));
 
-    let symbol = '';
+//             let dstAmount = await simulateKyberTrade(src, dst, exchRate, srcAmount);
 
-    try {
-        let tokenContract = await ethers.getContractAt('ERC20', token, wallet);
-        symbol = await tokenContract.symbol();
-    } catch (err) {
-        console.log(`Failed to fetch symbol from contract for ${token}, falling back to etherscan`);
+//             for (const [dst2, exchRate2] of exchRateCache.get(dst).entries()) {
+//                 if (exchRate2 === null) {
+//                     continue;
+//                 }
 
-        let url = `${etherscanEndpoint}/api?module=contract&action=getsourcecode&address=${token}&apikey=${etherscanApiKey}`;
-        
-        let response = await axios.get(url);
+//                 if (dst2 == src) {
+//                     continue;
+//                 }
 
-        if (response.data.status != '0') {
-            symbol = response.data.result[0].ContractName;
-        }
-    }
+//                 let dst2Amount = await simulateKyberTrade(dst, dst2, exchRate2, dstAmount);
 
-    if (symbol == '') {
-        symbol = token;
-    }
+//                 let exchRate3 = await getExchangeRate(dst2, src, dst2Amount);
 
-    tokenNameCache.set(token, symbol);
+//                 if (exchRate3 === null) {
+//                     continue;
+//                 }
 
-    return symbol;
-}
+//                 let srcReturn = await simulateKyberTrade(dst2, src, exchRate3, dst2Amount);
 
-function updateCache(src, dst, rate) {
-    if (!exchRateCache.has(src)) {
-        exchRateCache.set(src, new Map());
-    }
+//                 let srcDenom = 10**src.decimals;
+//                 let dstDenom = 10**dst.decimals;
+//                 let dst2Denom = 10**dst2.decimals;
 
-    exchRateCache.get(src).set(dst, rate);
-}
+//                 let rateDenom = 10**18;
 
-async function simulateKyberTrade(src, dst, exchRate, srcAmount) {
-    // Returns dst amount
-    let srcDecimals = await getTokenDecimals(src);
-    let dstDecimals = await getTokenDecimals(dst);
+//                 let srcProfit = (srcReturn - srcAmount) / srcDenom;
+//                 let srcProfitUSD = src.price * srcProfit;
 
-    if (dstDecimals.gte(srcDecimals)) {
-        return srcAmount.mul(exchRate).mul(TEN.pow(dstDecimals - srcDecimals)).div(TEN.pow(kyberPrecision));
-    } else {
-        return srcAmount.mul(exchRate).div(TEN.pow(srcDecimals - dstDecimals + kyberPrecision));
-    }
-}
+//                 if (srcProfitUSD <= 0) {
+//                     continue;
+//                 }
 
-async function getExchangeRate(src, dst, srcAmount) {
-    if (!exchRateCache.has(src) || !exchRateCache.get(src).has(dst)) {
-        updateCache(src, dst, null);
+//                 let srcAmountUSDDisplay = (src.price * srcTokens.toFixed(2)).toFixed(2);
+//                 let srcTokenUSDDisplay = src.price.toFixed(2);
 
-        let result = await kyberContract.getExpectedRate(src, dst, srcAmount);
+//                 const displayDecimals = 7;
 
-        if (result.expectedRate == 0) {
-            return null; //throw new Error('Unable to fetch rate');
-        }
+//                 let srcAmountDisplay = (srcAmount / srcDenom).toFixed(displayDecimals);
+//                 let exchRateDisplay = (exchRate / rateDenom).toFixed(displayDecimals);
+//                 let exchRate2Display = (exchRate2 / rateDenom).toFixed(displayDecimals);
+//                 let exchRate3Display = (exchRate3 / rateDenom).toFixed(displayDecimals);
+//                 let dstAmountDisplay = (dstAmount / dstDenom).toFixed(displayDecimals);
+//                 let dst2AmountDisplay = (dst2Amount / dst2Denom).toFixed(displayDecimals);
+//                 let srcReturnDisplay = (srcReturn / srcDenom).toFixed(displayDecimals);
 
-        updateCache(src, dst, result.expectedRate);
+//                 console.log(`++\t\t=> ${srcAmountDisplay}\t${src.symbol} (${src.decimals}) ($${srcAmountUSDDisplay}@${srcTokenUSDDisplay}/ea.)`);
+//                 console.log(`=> @${exchRateDisplay}\t=> ${dstAmountDisplay}\t${dst.symbol} (${dst.decimals})`);
+//                 console.log(`=> @${exchRate2Display}\t=> ${dst2AmountDisplay}\t${dst2.symbol} (${dst2.decimals})`);
+//                 console.log(`=> @${exchRate3Display}\t=> ${srcReturnDisplay}\t${src.symbol}`);
 
-        return result.expectedRate;
-    }
+//                 // https://stackoverflow.com/questions/9781218/how-to-change-node-jss-console-font-color
+//                 var colorFmt = srcProfit > 0 ? '\x1b[32m%s\x1b[0m' : '\x1b[31m%s\x1b[0m';
+//                 console.log(colorFmt, `++\t\t\t=> ${srcProfit}\t${src.symbol}\t=> $${srcProfitUSD.toFixed(2)}`);
+//                 console.log(`----------------------------------------------------------`);
+//             }
+//         }
+//     }
+// }
 
-    return exchRateCache.get(src).get(dst);
-}
+// async function calculateExchRate(src, dst, usrSrcDelta, usrDstDelta) {
+//     // https://github.com/KyberNetwork/smart-contracts/blob/60245913be1574c581a567ea881e3f6e3daf0b20/contracts/Utils.sol#L34
+//     if (dst.decimals.gte(src.decimals)) {
+//         return usrDstDelta.mul(TEN.pow(kyberPrecision)).div(usrSrcDelta).div(TEN.pow(dst.decimals - src.decimals));
+//     } else {
+//         return usrDstDelta.mul((TEN.pow(src.decimals - dst.decimals + kyberPrecision))).div(usrSrcDelta);
+//     }
+// }
 
-async function checkCache(src, dst, rate) {
-    updateCache(src, dst, rate);
+// async function getUniswapPairs() {
+//     try {
+//         let persisted = JSON.parse(fs.readFileSync('uniswap.json', 'utf8').toString().trim());
 
-    for (const [src, dstMap] of exchRateCache.entries()) {
-        for (const [dst, exchRate] of dstMap.entries()) {
-            if (exchRate == null) {
-                continue;
-            }
+//         for (var i = 0; i < persisted.length; i++) {
+//             let data = persisted[i];
+//             let uniswapPair = await ethers.getContractAt('IUniswapV2Pair', data.address, wallet);
+//             uniswapPairCache.set(new Set([data.token0, data.token1]), uniswapPair);
+//         }
 
-            if (!exchRateCache.has(dst)) {
-                continue;
-            }
+//         return;
+//     } catch (err) {
+//         console.log('Could not load uniswap pairs from file, fetching from network');
+//     }
 
-            let srcSymbol = await getTokenName(src);
-            let dstSymbol = await getTokenName(dst);
+//     let persistedData = []
 
-            let srcDecimals = await getTokenDecimals(src);
-            let dstDecimals = await getTokenDecimals(dst);
+//     let uniswapFactory = await ethers.getContractAt('IUniswapV2Factory', uniswapFactoryAddress, wallet);
 
-            let srcPrice = await getTokenPrice(srcSymbol); // TODO organize coins better
+//     let uniswapPairsCount = await uniswapFactory.allPairsLength();
+//     console.log(`UNISWAP PAIRS COUNT ${uniswapPairsCount}`);
 
-            let srcValueUSD = 100;
-            let fallbackTokensCount = 300;
-            let srcTokens = srcPrice == 0 ? fallbackTokensCount : (1 / srcPrice * srcValueUSD);
+//     for (var i = 0; i < uniswapPairsCount; i++) {
+//         let pairAddress = await uniswapFactory.allPairs(i);
 
-            let srcAmount = TEN.pow(srcDecimals).mul(Math.round(srcTokens));
+//         let uniswapPair = await ethers.getContractAt('IUniswapV2Pair', pairAddress, wallet);
 
-            let dstAmount = await simulateKyberTrade(src, dst, exchRate, srcAmount);
+//         let token0 = await tokens.TokenFactory.getTokenByAddress(await uniswapPair.token0());
+//         let token1 = await tokens.TokenFactory(await uniswapPair.token1());
 
-            for (const [dst2, exchRate2] of exchRateCache.get(dst).entries()) {
-                if (exchRate2 === null) {
-                    continue;
-                }
+//         persistedData.push({
+//             address: pairAddress,
+//             token0: token0,
+//             token1: token1
+//         });
 
-                if (dst2 == src) {
-                    continue;
-                }
+//         let token0Symbol = await getTokenName(token0);
+//         let token1Symbol = await getTokenName(token1);
 
-                let dst2Symbol = await getTokenName(dst2);
+//         let token0Decimals = await getTokenDecimals(token0);
+//         let token1Decimals = await getTokenDecimals(token1);
 
-                let dst2Amount = await simulateKyberTrade(dst, dst2, exchRate2, dstAmount);
+//         console.log(`Uniswap Pair ${token0Symbol} ${token1Symbol}`);
 
-                let exchRate3 = await getExchangeRate(dst2, src, dst2Amount);
+//         uniswapPairCache.set(new Set([token0, token1]), uniswapPair);
 
-                if (exchRate3 === null) {
-                    continue;
-                }
+//         uniswapPair.on('Swap', async (sender, token0In, token1In, token0Out, token1Out, to) => {
+//             let token0Amount = Math.max(token0In, token0Out) / (10**token0Decimals);
+//             let token1Amount = Math.max(token1In, token1Out) / (10**token1Decimals);
+//             console.log(`Uniswap SWAP ${token0Amount} ${token0Symbol} <=> ${token1Amount} ${token1Symbol}`)
+//         });
+//     }
 
-                let srcReturn = await simulateKyberTrade(dst2, src, exchRate3, dst2Amount);
+//     fs.writeFileSync('uniswap.json', JSON.stringify(persistedData));
+// }
 
-                let dst2Decimals = await getTokenDecimals(dst2);
-
-                let srcDenom = 10**srcDecimals;
-                let dstDenom = 10**dstDecimals;
-                let dst2Denom = 10**dst2Decimals;
-
-                let srcProfit = (srcReturn - srcAmount) / srcDenom;
-                let srcProfitUSD = srcPrice * srcProfit;
-
-                if (srcProfitUSD <= 0) {
-                    continue;
-                }
-
-                let srcAmountUSDDisplay = (srcPrice * srcTokens.toFixed(2)).toFixed(2);
-                let srcTokenUSDDisplay = srcPrice.toFixed(2);
-
-                console.log(`   ${srcAmount / srcDenom} ${srcSymbol} (${srcDecimals}) ($${srcAmountUSDDisplay}@${srcTokenUSDDisplay}/ea.)`);
-                console.log(`=> @${exchRate / dstDenom} => ${dstAmount / dstDenom} ${dstSymbol} (${dstDecimals})`);
-                console.log(`=> @${exchRate2 / dst2Denom} => ${dst2Amount / dst2Denom} ${dst2Symbol} (${dst2Decimals})`);
-                console.log(`=> @${exchRate3 / srcDenom} => ${srcReturn / srcDenom} ${srcSymbol}`);
-
-                var colorFmt; // https://stackoverflow.com/questions/9781218/how-to-change-node-jss-console-font-color
-                if (srcProfit > 0) {
-                       colorFmt = '\x1b[32m%s\x1b[0m';
-                } else {
-                    colorFmt = '\x1b[31m%s\x1b[0m';
-                }
-
-                console.log(colorFmt, `++ ${srcProfit} ${srcSymbol} = $${srcProfitUSD.toFixed(2)}`);
-                console.log(`----------------------------------------------------------`);
-            }
-        }
-    }
-}
-
-async function calculateExchRate(src, dst, usrSrcDelta, usrDstDelta) {
-    let srcDecimals = await getTokenDecimals(src);
-    let dstDecimals = await getTokenDecimals(dst);
-
-    // https://github.com/KyberNetwork/smart-contracts/blob/60245913be1574c581a567ea881e3f6e3daf0b20/contracts/Utils.sol#L34
-    if (dstDecimals.gte(srcDecimals)) {
-        return usrDstDelta.mul(TEN.pow(kyberPrecision)).div(usrSrcDelta).div(TEN.pow(dstDecimals - srcDecimals));
-    } else {
-        return usrDstDelta.mul((TEN.pow(srcDecimals - dstDecimals + kyberPrecision))).div(usrSrcDelta);
-    }
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 const run = async () => {
-    kyberContract = await ethers.getContractAt('IKyberNetworkProxy', legos.kyber.network.address, wallet);
+    await tokens.TokenFactory.init();
 
-    let time = new Date();
+    let kyberSwap = await kyber.create(legos.kyber.network.address);
 
-    let priceTaskPromise = fetchTokenPrices().catch( (err) => { console.log(err); });
+    let mdl = new model.Model(kyberSwap);
 
-    kyberContract.on('ExecuteTrade', async (sender, src, dst, usrSrcDelta, usrDstDelta) => {
-        let time = new Date();
-
-        let exchRate = await calculateExchRate(src, dst, usrSrcDelta, usrDstDelta);        
-
-        await checkCache(src, dst, exchRate);
-    });
+    kyberSwap.onSwap( function() { mdl.updateRate.apply(mdl, arguments); } );
 
     let currentBlock = await ethers.provider.getBlockNumber();
 
     ethers.provider.resetEventsBlock(currentBlock - 100);
 
-    await priceTaskPromise;
+    while (true) {
+        mdl.findBestRate();
+
+        await sleep(1000);
+    }
 }
 
 function main() {
