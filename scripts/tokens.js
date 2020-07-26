@@ -31,8 +31,8 @@ Token.prototype.formatAmount = function(amt) {
 // TokenFactory
 
 function TokenFactory() {
-    this.tokens = {}
-    this.prices = {}
+    this.tokens = {};
+    this.prices = {};
 
     this.init = async function() {
         try {
