@@ -12,7 +12,7 @@ function Strategy(contract) {
 }
 
 const getNetworkName = async () => {
-    let network = (await ethers.provider.getNetwork());
+    let network = await ethers.provider.getNetwork();
 
     debugger;
 

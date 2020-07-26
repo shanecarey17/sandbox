@@ -5,12 +5,31 @@ const fs = require('fs');
 const mnemonic = fs.readFileSync('.secret').toString().trim();
 
 const log4js = require('log4js');
+
 log4js.configure({
-  appenders: [
-    { type: 'console' },
-    { type: 'file', filename: 'var/ganache.log', category: 'ganache' }
-  ]
+  appenders: {
+      ganache: {
+          type: 'file',
+          filename: 'var/ganache.log',
+      }
+  },
+  categories: {
+      default: {
+          appenders: ['ganache'],
+          level: 'info',
+      }
+  }
 });
+
+function GanacheLogger(logger) {
+    this.logger = logger
+
+    this.log = function() {
+        this.logger.info(...arguments);
+    }
+}
+
+log4js.getLogger('ganache').info('HERE');
 
 module.exports = {
     defaultNetwork: 'ganache',
@@ -21,7 +40,7 @@ module.exports = {
             network_id: 5777,
             port: 8545,
             url: 'http://localhost:8545',
-            logger: log4js.getLogger('ganache'),
+            logger: new GanacheLogger(log4js.getLogger('ganache')),
             //unlocked_accounts: []
         }
         // development: {
