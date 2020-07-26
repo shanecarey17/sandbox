@@ -1,6 +1,8 @@
 .secret
+package-lock.json
 artifacts/
 build/
 cache/
 log/
 node_modules/
+var/
