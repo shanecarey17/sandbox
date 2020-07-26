@@ -63,7 +63,9 @@ module.exports = {
             contract = await ethers.getContractAt(STRATEGY_NAME, address, wallet);
         }
 
-        console.log(`Strategy deployed at ${contract.address}`);
+        let strategyBalance = await ethers.provider.getBalance(contract.address);
+
+        console.log(`Strategy deployed at ${contract.address} balance ${strategyBalance}`);
 
         return new Strategy(contract);
     }

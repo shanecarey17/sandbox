@@ -1,4 +1,4 @@
-const ethers = require('ethers');
+const ethers = require('@nomiclabs/buidler').ethers;
 const legos = require('@studydefi/money-legos').legos;
 
 const IERC20 = artifacts.require('IERC20');

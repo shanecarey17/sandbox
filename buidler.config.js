@@ -1,8 +1,14 @@
-usePlugin('@nomiclabs/buidler-ethers');
 usePlugin('@nomiclabs/buidler-ganache');
+usePlugin("@nomiclabs/buidler-waffle");
+
+usePlugin('buidler-ethers-v5');
 
 const fs = require('fs');
 const mnemonic = fs.readFileSync('.secret').toString().trim();
+
+/*
+ * Ganache logging
+ */
 
 const log4js = require('log4js');
 
@@ -29,19 +35,35 @@ function GanacheLogger(logger) {
     }
 }
 
-log4js.getLogger('ganache').info('HERE');
+/*
+ * Tasks
+ */
+
+
+
+/*
+ * Exports
+ */
 
 module.exports = {
+    verbose: true,
     defaultNetwork: 'ganache',
     networks: {
         ganache: {
+            // Ganache options
             fork: 'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d',
             mnemonic: mnemonic,
             network_id: 5777,
             port: 8545,
-            url: 'http://localhost:8545',
             logger: new GanacheLogger(log4js.getLogger('ganache')),
+            keepAliveTimeout: 0, // ms
+            verbose: true,
+            debug:true,
             //unlocked_accounts: []
+
+            // Buidler options
+            url: 'http://localhost:8545',
+            timeout: 300 * 1000,
         }
         // development: {
         //     url: 'http://localhost:8545'
@@ -63,5 +85,8 @@ module.exports = {
         tests: "./test",
         cache: "./cache",
         artifacts: "./artifacts"
+    },
+    mocha: {
+        timeout: 3600 * 1000 // ms, tests are long running
     }
 };
