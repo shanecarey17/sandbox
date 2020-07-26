@@ -14,8 +14,6 @@ function Strategy(contract) {
 const getNetworkName = async () => {
     let network = await ethers.provider.getNetwork();
 
-    debugger;
-
     return network.chainId;
 }
 
@@ -56,12 +54,16 @@ module.exports = {
 
             contract = await factory.deploy();
 
+            await contract,deployed();
+
             console.log(contract);
 
             await setAddress(STRATEGY_NAME, contract.address);
         } else {
             contract = await ethers.getContractAt(STRATEGY_NAME, address, wallet);
         }
+
+        console.log(`Strategy deployed at ${contract.address}`);
 
         return new Strategy(contract);
     }
