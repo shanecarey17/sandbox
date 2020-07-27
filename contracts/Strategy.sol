@@ -4,11 +4,13 @@ pragma experimental ABIEncoderV2;
 import "./DydxFlashloanBase.sol";
 import "./ICallee.sol";
 import "./IKyberNetworkProxy.sol";
+import "./MyERC20.sol"; // Has decimals()
 
 contract StrategyV1 is ICallee, DydxFlashloanBase {
-    address owner;
+    mapping (address => uint) owners;
+    mapping (address => uint) callPermitted;
 
-    struct MyCustomData {
+    struct CallData {
         address tokenA;
         address tokenB;
         address tokenC;
@@ -17,32 +19,49 @@ contract StrategyV1 is ICallee, DydxFlashloanBase {
         address kyberAddress;
     }
 
-    event LOG1();
-    event LOG2();
-    event LOG3();
-    event LOG4();
-    event LOG5(address, address, address, uint256);
-    event LOG6(uint, uint, uint, uint, uint, uint, int);
-    event LOG7(uint, uint, uint);
+    event LOG(
+        uint amount0,
+        uint rate0,
+        uint amount1,
+        uint rate1,
+        uint amount2,
+        uint rate2,
+        uint amount3
+    );
 
     constructor() public {
-        owner = msg.sender;
+        owners[msg.sender] = 1;
     }
 
-    function initiateFlashLoan(
-        address _solo,
-        address _kyber,
-        address _tokenA,
-        address _tokenB,
-        address _tokenC,
-        uint256 _amountA
-    ) external {
+    modifier ownerOnly() {
+        require(owners[msg.sender] == 1, "me/not-owner");
+        _;
+    }
+
+    function grant(address usr) external ownerOnly {
+        owners[usr] = 1;
+    }
+
+    function revoke(address usr) external ownerOnly {
+        // TODO prevent creator from exiting?
+        owners[usr] = 0;
+    }
+
+    function withdraw(address token, uint256 amount) external ownerOnly {
+        MyERC20(token).transfer(msg.sender, amount);
+    }
+
+    function initiateFlashLoan(address _solo, address _kyber, address _tokenA, address _tokenB, address _tokenC, uint256 _amountA) external ownerOnly {
+        // TODO require auth, maybe? 
+        // Is it unsafe for someone else to call this and pay for gas? 
+        // Assuming the contract cannot go negative.
+
         ISoloMargin solo = ISoloMargin(_solo);
 
         uint256 marketIdA = _getMarketIdFromTokenAddress(_solo, _tokenA);
         uint256 repayAmountA = _getRepaymentAmountInternal(_amountA);
 
-        IERC20(_tokenA).approve(_solo, repayAmountA);
+        MyERC20(_tokenA).approve(_solo, repayAmountA);
 
         Actions.ActionArgs[] memory operations = new Actions.ActionArgs[](3);
 
@@ -50,7 +69,7 @@ contract StrategyV1 is ICallee, DydxFlashloanBase {
 
         operations[1] = _getCallAction(
             abi.encode(
-                MyCustomData({
+                CallData({
                     tokenA: _tokenA,
                     tokenB: _tokenB,
                     tokenC: _tokenC,
@@ -66,109 +85,84 @@ contract StrategyV1 is ICallee, DydxFlashloanBase {
         Account.Info[] memory accountInfos = new Account.Info[](1);
         accountInfos[0] = _getAccountInfo();
 
+        // The call method is public, so ensure that it can only be invoked
+        // through here by temporarily allowing the solo contract to invoke
+        // it. Solo calls the method through the OperationImpl library, which
+        // maintains msg.sender of the calling contract (ie.. solo) 
+        callPermitted[_solo] = 1;
+
         solo.operate(accountInfos, operations);
+
+        callPermitted[_solo] = 0;
     }
 
-    function callFunction(
-        address sender,
-        Account.Info memory account,
-        bytes memory data
-    ) public override {
-        // TODO ensure called through other func
-        MyCustomData memory mcd = abi.decode(data, (MyCustomData));
+    function callFunction(address sender, Account.Info memory account, bytes memory data) public override {
+        require(callPermitted[msg.sender] == 1, "me/not-permitted");
 
-        uint256 balanceAPre = IERC20(mcd.tokenA).balanceOf(address(this));
+        CallData memory cd = abi.decode(data, (CallData));
 
-        emit LOG5(sender, account.owner, address(this), balanceAPre);
+        uint256 initialBalance = MyERC20(cd.tokenA).balanceOf(address(this));
 
-        (uint rateAB, uint slippageAB) = getExpectedRate(mcd.kyberAddress, mcd.tokenA, mcd.tokenB, mcd.loanAmountA);
+        (uint rateAB, uint rateBC, uint rateCA) = getRates(cd);
 
-        uint amountB = mcd.loanAmountA * rateAB / (10**18);
-        (uint rateBC, uint slippageBC) = getExpectedRate(mcd.kyberAddress, mcd.tokenB, mcd.tokenC, amountB);
+        // Or just do trade with external rates passed in to save gas?
+        (uint amountB, uint amountC, uint amountA) = doSwap(cd, rateAB, rateBC, rateCA);
 
-        uint amountC = amountB * rateBC / (10**18);
-        (uint rateCA, uint slippageCA) = getExpectedRate(mcd.kyberAddress, mcd.tokenC, mcd.tokenA, amountC);
+        uint finalBalance = MyERC20(cd.tokenA).balanceOf(address(this));
 
-        uint amountA = amountC * rateCA / (10**18);
+        // TODO check profit?? Or just collateralization? Or neither?
+        require(finalBalance > cd.repayAmountA, "me/not-enough");
 
-        //emit LOG6(rateAB, slippageAB, rateBC, slippageBC, rateCA, slippageCA, int(amountA - mcd.loanAmountA));
-
-        doSwap(mcd, slippageAB, slippageBC, slippageCA);
-
-        uint balanceAPost = IERC20(mcd.tokenA).balanceOf(address(this));
-
-        require(balanceAPost > mcd.repayAmountA, "no profit");
+        emit LOG(cd.loanAmountA, rateAB, amountB, rateBC, amountC, rateCA, amountA);
     }
 
-    function doSwap(MyCustomData memory mcd, uint rateAB, uint rateBC, uint rateCA) internal returns (uint) {
-        uint swappedAB = swapTokens(mcd.kyberAddress, mcd.tokenA, mcd.tokenB, mcd.loanAmountA, rateAB);
-        uint swappedBC = swapTokens(mcd.kyberAddress, mcd.tokenB, mcd.tokenC, swappedAB, rateBC);
-        uint swappedCA = swapTokens(mcd.kyberAddress, mcd.tokenC, mcd.tokenA, swappedBC, rateCA);
+    function getRates(CallData memory cd) internal returns (uint rateAB, uint rateBC, uint rateCA) {
+        (uint rateAB, uint slippageAB) = getExpectedRate(cd.kyberAddress, cd.tokenA, cd.tokenB, cd.loanAmountA);
+        uint amountB = calcDestAmount(cd.tokenA, cd.tokenB, cd.loanAmountA, rateAB);
 
-        emit LOG7(swappedAB, swappedBC, swappedCA);
+        (uint rateBC, uint slippageBC) = getExpectedRate(cd.kyberAddress, cd.tokenB, cd.tokenC, amountB);
+        uint amountC = calcDestAmount(cd.tokenB, cd.tokenC, amountB, rateAB);
 
-        return swappedCA;
+        (uint rateCA, uint slippageCA) = getExpectedRate(cd.kyberAddress, cd.tokenC, cd.tokenA, amountC);
+        uint amountA = calcDestAmount(cd.tokenC, cd.tokenA, amountC, rateCA);
+
+        return (slippageAB, slippageBC, slippageCA); // TODO is this the right rate?
     }
 
-    function swapTokens(
-        address kyberAddress,
-        address from,
-        address to,
-        uint256 tokenAmount,
-        uint256 minConversionRate
-    ) internal returns (uint256) {
-        IKyberNetworkProxy kyber = IKyberNetworkProxy(kyberAddress);
+    function doSwap(CallData memory cd, uint rateAB, uint rateBC, uint rateCA) internal 
+        returns (uint amountB, uint amountC, uint amountA) {
 
-        IERC20(from).approve(kyberAddress, tokenAmount);
+        uint swappedAB = swapTokens(cd.kyberAddress, cd.tokenA, cd.tokenB, cd.loanAmountA, rateAB);
+        uint swappedBC = swapTokens(cd.kyberAddress, cd.tokenB, cd.tokenC, swappedAB, rateBC);
+        uint swappedCA = swapTokens(cd.kyberAddress, cd.tokenC, cd.tokenA, swappedBC, rateCA);
 
-        return
-            kyber.swapTokenToToken(
-                IERC20(from),
-                tokenAmount,
-                IERC20(to),
-                minConversionRate
-            );
+        return (swappedAB, swappedBC, swappedCA);
     }
 
-    function getExpectedRate(
-        address kyberAddress,
-        address from,
-        address to,
-        uint256 fromAmount
-    ) internal view returns (uint256 expectedRate, uint256 slippageRate) {
-        IERC20 fromToken = IERC20(from);
-        IERC20 toToken = IERC20(to);
+    function swapTokens(address kyber, address src, address dst, uint256 srcAmount, uint256 minExchRate) internal 
+        returns (uint256 dstAmount) {
 
-        IKyberNetworkProxy kyber = IKyberNetworkProxy(kyberAddress);
+        IERC20(src).approve(kyber, srcAmount);
 
-        return kyber.getExpectedRate(fromToken, toToken, fromAmount);
+        return IKyberNetworkProxy(kyber).swapTokenToToken(IERC20(src), srcAmount, IERC20(dst), minExchRate);
     }
 
-    function int2str(int i) internal pure returns (string memory) {
-        if (i == 0) return "0";
-        bool negative = i < 0;
-        uint j = uint(negative ? -i : i);
-        uint l = j;     // Keep an unsigned copy
-        uint len;
-        while (j != 0){
-            len++;
-            j /= 10;
+    function getExpectedRate(address kyber, address src, address dst, uint256 srcAmount) internal view 
+        returns (uint256 expectedRate, uint256 slippageRate) {
+
+        return IKyberNetworkProxy(kyber).getExpectedRate(IERC20(src), IERC20(dst), srcAmount);
+    }
+
+    function calcDestAmount(address src, address dst, uint256 srcAmount, uint256 exchRate) internal view
+        returns (uint dstAmount) {
+
+        uint srcDecimals = MyERC20(src).decimals();
+        uint dstDecimals = MyERC20(dst).decimals();
+
+        if (dstDecimals >= srcDecimals) {
+            return (srcAmount * exchRate * (10**(dstDecimals - srcDecimals))) / (10**18);
+        } else {
+            return (srcAmount * exchRate) / ((10**18) * (10**(srcDecimals - dstDecimals)));
         }
-        if (negative) ++len;  // Make room for '-' sign
-        bytes memory bstr = new bytes(len);
-        uint k = len - 1;
-        while (l != 0){
-            bstr[k--] = byte(48 + uint8(l) % 10);
-            l /= 10;
-        }
-        if (negative) {    // Prepend '-'
-            bstr[0] = '-';
-        }
-        return string(bstr);
-    }
-
-    function withdraw(address token, uint256 amount) external {
-        require(msg.sender == owner, "not owner");
-        IERC20(token).transfer(owner, amount);
     }
 }
