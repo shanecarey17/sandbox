@@ -1,7 +1,8 @@
 usePlugin('@nomiclabs/buidler-ganache');
 usePlugin("@nomiclabs/buidler-waffle");
-
 usePlugin('buidler-ethers-v5');
+
+const legos = require('@studydefi/money-legos').legos;
 
 const fs = require('fs');
 const mnemonic = fs.readFileSync('.secret').toString().trim();
@@ -56,10 +57,14 @@ module.exports = {
             network_id: 5777,
             port: 8545,
             logger: new GanacheLogger(log4js.getLogger('ganache')),
-            keepAliveTimeout: 0, // ms
+            keepAliveTimeout: 300 * 1000, // ms
+            ws: false,
+            //db: './db/',
             verbose: true,
-            debug:true,
-            //unlocked_accounts: []
+            debug:false,
+            unlocked_accounts: [
+                "0x9eB7f2591ED42dEe9315b6e2AAF21bA85EA69F8C", // DAI holder
+            ],
 
             // Buidler options
             url: 'http://localhost:8545',

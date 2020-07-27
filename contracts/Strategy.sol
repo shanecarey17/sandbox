@@ -102,6 +102,7 @@ contract StrategyV1 is ICallee, DydxFlashloanBase {
 
     function doSwap(MyCustomData memory mcd, uint rateAB, uint rateBC, uint rateCA) internal returns (uint) {
         uint swappedAB = swapTokens(mcd.kyberAddress, mcd.tokenA, mcd.tokenB, mcd.loanAmountA, rateAB);
+        require(false, "int2str(swappedAB)");
         uint swappedBC = swapTokens(mcd.kyberAddress, mcd.tokenB, mcd.tokenC, swappedAB, rateBC);
         uint swappedCA = swapTokens(mcd.kyberAddress, mcd.tokenC, mcd.tokenA, swappedBC, rateCA);
 
