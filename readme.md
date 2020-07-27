@@ -1,5 +1,6 @@
 ```
 npm install
 npx buidler compile
-node --unhandled-rejections=strict scripts/main.js
+npx buidler test
+npx buidler run scripts/main.js
 ```
