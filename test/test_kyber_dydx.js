@@ -8,8 +8,8 @@ const TEN = ethers2.BigNumber.from(10);
 // https://etherscan.io/address/0x6b175474e89094c44da98b954eedeac495271d0f
 const DAI_ADMIN = "0x9eB7f2591ED42dEe9315b6e2AAF21bA85EA69F8C";
 
-describe("Strategy", function() {
-  it("Should work", async function() {
+describe("Strategy", async function() {
+  it("Should trade", async function() {
     const signers = await ethers.getSigners();
     const signer = signers[0];
 
@@ -32,13 +32,14 @@ describe("Strategy", function() {
     const signerBalance = await signer.getBalance();
     console.log(`Signer balance: ${signerBalance}`);
 
-    var tradeAmount = ethers2.utils.parseUnits('100', 'finney');
+    var tradeAmount = ethers2.utils.parseUnits('100');
 
     await dai.connect(daiAdmin).transfer(strategy.address, tradeAmount);
 
     const initialBalance = await dai.balanceOf(strategy.address);
     console.log(`Strategy ${strategy.address} A balance: ${initialBalance}`);
 
+    // TODO, DAI generally has enough in it but check here and fund if necessary
     const soloMarginBalance = await dai.balanceOf(soloMargin.address);
     console.log(`SoloMargin ${soloMargin.address} A balance: ${soloMarginBalance}`);
 
@@ -72,7 +73,9 @@ describe("Strategy", function() {
 
     const finalAmount = tradeAmount;
 
-    console.log(`Expected profit: ${finalAmount - initialAmount}`);
+    const expectedProfit = finalAmount - initialAmount;
+
+    console.log(`Expected profit: ${expectedProfit}`);
 
     // Do the trade
     let tx = await strategy.initiateFlashLoan(
@@ -89,9 +92,20 @@ describe("Strategy", function() {
 
     console.log(tx);
 
+    let txDone = await tx.wait(); // TODO check the log
+
+    // Check balances match expected
     let finalBalance = await dai.balanceOf(strategy.address);
 
-    // Did it successfully scalp?
-    expect(finalBalance).to.gt(initialBalance);
+    const actualProfit = finalBalance - initialBalance;
+
+    console.log(`Actual Profit: ${actualProfit}`);
+
+    // Transfer to owner account
+    let tx1 = await strategy.withdraw(dai.address, finalBalance);
+
+    let ownerBalance = await dai.balanceOf(await signer.getAddress());
+
+    expect(ownerBalance).to.equal(finalBalance);
   });
 });

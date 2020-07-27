@@ -65,7 +65,7 @@ function TokenFactory() {
         var decimals = ethers.BigNumber.from(18);
 
         if (address != constants.ETH_ADDRESS) {
-            contract = await ethers.getContractAt('ERC20', address, wallet);
+            contract = await ethers.getContractAt('MyERC20', address, wallet);
             decimals = await contract.decimals();
             symbol = '';
 

@@ -52,7 +52,8 @@ module.exports = {
     networks: {
         ganache: {
             // Ganache options
-            fork: 'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d',
+            fork: 'https://mainnet.infura.io/v3/e4aa52bf76a948ea92ae7772d299aef0', // Chris
+            //fork: 'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d', // Shane
             mnemonic: mnemonic,
             network_id: 5777,
             port: 8545,
