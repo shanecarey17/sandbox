@@ -5,31 +5,41 @@ const tokens = require('./tokens.js');
 const model = require('./model.js');
 const kyber = require('./kyber.js');
 const strategy = require('./strategy.js');
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+const exec = require('./exec.js');
 
 const run = async () => {
+    process.on('unhandledRejection', (err) => { 
+        console.log(err); 
+        process.exit(); 
+    });
+
+    const signer = (await ethers.getSigners())[0];
+    const signerAddress = await signer.getAddress();
+    const balance = await signer.getBalance();
+
+    console.log(`SIGNER BALANCE: ${signerAddress} ${balance / (10**18)} ETH`);
+
     await tokens.TokenFactory.init();
 
-    let strat = await strategy.create();
+    let str = await strategy.load();
 
-    let kyberSwap = await kyber.create(legos.kyber.network.address);
+    let mdl = new model.Model();
 
-    let mdl = new model.Model(kyberSwap);
+    let exc = new exec.Executor(str, mdl);
 
-    kyberSwap.onSwap( function() { mdl.updateRate.apply(mdl, arguments); } );
+    let onRateUpdate = async (exchange, src, dst, exchRate) => {
+        console.log(`RATE UPDATE: ${exchange.name} ${src.symbol} ${dst.symbol} ${exchRate / (10**18)}`);
 
-    let currentBlock = await ethers.provider.getBlockNumber();
+        mdl.updateRate(exchange, src, dst, exchRate);
 
-    ethers.provider.resetEventsBlock(currentBlock - 100);
-
-    while (true) {
-        mdl.findBestRate();
-
-        await sleep(1000);
+        await exc.tryExecute(src);
     }
+
+    let kbs = await kyber.load(legos.kyber.network.address, onRateUpdate);
+
+    // Start from a while ago
+    let currentBlock = await ethers.provider.getBlockNumber();
+    ethers.provider.resetEventsBlock(currentBlock - 100);
 }
 
 function main() {

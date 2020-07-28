@@ -5,12 +5,13 @@ const tokens = require('./tokens.js');
 const wallet = require('./wallet.js');
 const constants = require('./constants.js');
 
-function KyberSwap(contract) {
-    this.contract = contract;
-}
+function KyberSwap(contract, callback) {
+    this.name = "KyberSwap";
 
-KyberSwap.prototype.onSwap = function(callback) {
-    this.contract.on('ExecuteTrade', async (sender, src, dst, usrSrcDelta, usrDstDelta) => {
+    this.contract = contract;
+    this.callback = callback;
+
+    let cb = async (sender, src, dst, usrSrcDelta, usrDstDelta) => {
         src = await tokens.TokenFactory.getTokenByAddress(src);
         dst = await tokens.TokenFactory.getTokenByAddress(dst);
 
@@ -22,22 +23,26 @@ KyberSwap.prototype.onSwap = function(callback) {
             exchRate = usrDstDelta.mul((constants.TEN.pow(src.decimals - dst.decimals + constants.KYBER_PRECISION))).div(usrSrcDelta);
         }
 
-        callback(this, src, dst, exchRate);
-    });
-}
+        await this.callback(this, src, dst, exchRate);
+    }
 
-KyberSwap.prototype.getExchangeRate = async function(src, dst, srcAmount) {
-    assert(srcAmount != 0);
+    this.contract.on('ExecuteTrade', cb);
 
-    let result = await this.contract.getExpectedRate(src.contract.address, dst.contract.address, srcAmount);
+    this.getExchangeRate = async (src, dst, srcAmount) => {
+        assert(srcAmount != 0);
 
-    return result.expectedRate;
+        let result = await this.contract.getExpectedRate(src.contract.address, dst.contract.address, srcAmount);
+
+        await this.callback(this, src, dst, result.expectedRate);
+
+        return result.expectedRate;
+    }
 }
 
 module.exports = {
-    create: async function(address) {
+    load: async function(address, callback) {
         var contract = await ethers.getContractAt('IKyberNetworkProxy', address, wallet);
 
-        return new KyberSwap(contract);
+        return new KyberSwap(contract, callback);
     }
 }

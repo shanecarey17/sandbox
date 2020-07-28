@@ -1,15 +1,15 @@
 usePlugin('@nomiclabs/buidler-ganache');
 usePlugin("@nomiclabs/buidler-waffle");
-usePlugin('buidler-ethers-v5');
-
-const legos = require('@studydefi/money-legos').legos;
+usePlugin("buidler-deploy");
 
 const fs = require('fs');
-const mnemonic = fs.readFileSync('.secret').toString().trim();
 
-/*
- * Ganache logging
- */
+const MNEMONIC = fs.readFileSync('.secret').toString().trim();
+
+const INFURA_URL = 'https://mainnet.infura.io/v3/e4aa52bf76a948ea92ae7772d299aef0'; // Chris
+//const INFURA_URL = 'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d'; // Chris
+
+const MAINNET_KEY = fs.readFileSync('.mainnet.key').toString().trim();
 
 const log4js = require('log4js');
 
@@ -36,48 +36,36 @@ function GanacheLogger(logger) {
     }
 }
 
-/*
- * Tasks
- */
-
-
-
-/*
- * Exports
- */
-
 module.exports = {
     verbose: true,
     defaultNetwork: 'ganache',
     networks: {
         ganache: {
             // Ganache options
-            fork: 'https://mainnet.infura.io/v3/e4aa52bf76a948ea92ae7772d299aef0', // Chris
-            //fork: 'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d', // Shane
-            mnemonic: mnemonic,
+            fork: INFURA_URL,
+            mnemonic: MNEMONIC,
             network_id: 5777,
             port: 8545,
             logger: new GanacheLogger(log4js.getLogger('ganache')),
             keepAliveTimeout: 300 * 1000, // ms
             ws: false,
             //db: './db/',
-            verbose: true,
+            verbose: false,
             debug:false,
             unlocked_accounts: [
-                "0x9eB7f2591ED42dEe9315b6e2AAF21bA85EA69F8C", // DAI holder
+                "0x9eB7f2591ED42dEe9315b6e2AAF21bA85EA69F8C", // https://etherscan.io/address/0x9eb7f2591ed42dee9315b6e2aaf21ba85ea69f8c
             ],
 
             // Buidler options
             url: 'http://localhost:8545',
             timeout: 300 * 1000,
+        },
+        mainnet: {
+            url: INFURA_URL,
+            accounts: [
+                MAINNET_KEY
+            ]
         }
-        // development: {
-        //     url: 'http://localhost:8545'
-        // },
-        // mainnet: {
-        //     url: 'https://mainnet.infura.io/v3/e4aa52bf76a948ea92ae7772d299aef0', // Chris
-        //     //url: 'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d', // Shane
-        // }
     },
     solc: {
         version: "0.6.0",
@@ -90,9 +78,19 @@ module.exports = {
         sources: "./contracts",
         tests: "./test",
         cache: "./cache",
-        artifacts: "./artifacts"
+        artifacts: "./artifacts",
+
+        // buidler-deploy
+        deploy: './deploy',
+        deployments: './deployments',
     },
     mocha: {
         timeout: 3600 * 1000 // ms, tests are long running
+    },
+    namedAccounts: {
+        // Public keys here
+        deployer: {
+            default: 0, // Index of first account
+        }
     }
 };

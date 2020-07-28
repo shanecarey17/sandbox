@@ -18,4 +18,10 @@ module.exports = {
     KYBER_PRECISION: 18,
 
     ETH_ADDRESS: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+
+    STRATEGY_NAME: 'StrategyV1',
+    ADDRESS_FILE_NAME: 'contracts.json',
+
+    GAS_PRICE: ethers.utils.parseUnits('58', 'gwei'),
+    GAS_ESTIMATE: 30000
 }

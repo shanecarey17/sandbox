@@ -1,4 +1,5 @@
 const fs = require('fs');
+const assert = require('assert');
 const axios = require('axios');
 const ethers = require("@nomiclabs/buidler").ethers;
 
@@ -28,6 +29,14 @@ Token.prototype.formatAmount = function(amt) {
     return (amt / constants.TEN.pow(this.decimals)).toFixed(constants.DISPLAY_DECIMALS);
 }
 
+Token.prototype.balanceOf = async function(address) {
+    if (this.contract.address === constants.ETH_ADDRESS) {
+        return await ethers.provider.getBalance(address);
+    }
+
+    return await this.contract.balanceOf(address);
+}
+
 // TokenFactory
 
 function TokenFactory() {
@@ -38,7 +47,7 @@ function TokenFactory() {
         try {
             this.tokens = JSON.parse(fs.readFileSync('tokens.json', 'utf8').toString());
         } catch(err) {
-            console.log('Failed to load tokens config');
+            console.log('Failed to load tokens from config "./tokens.json"');
         }
 
         let response = await axios.get(`${coinMarketCapEndpoint}/v1/cryptocurrency/listings/latest`, {
