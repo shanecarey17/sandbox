@@ -5,10 +5,13 @@ import "./DydxFlashloanBase.sol";
 import "./ICallee.sol";
 import "./IKyberNetworkProxy.sol";
 import "./MyERC20.sol"; // Has decimals()
+import "./Utils.sol";
 
 contract StrategyV1 is ICallee, DydxFlashloanBase {
-    mapping (address => uint) owners;
-    mapping (address => uint) callPermitted;
+    mapping (address => uint) internal owners;
+    mapping (address => uint) internal callPermitted;
+
+    address constant internal KYBER_ETH_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     struct CallData {
         address tokenA;
@@ -51,7 +54,7 @@ contract StrategyV1 is ICallee, DydxFlashloanBase {
         MyERC20(token).transfer(msg.sender, amount);
     }
 
-    function initiateFlashLoan(address _solo, address _kyber, address _tokenA, address _tokenB, address _tokenC, uint256 _amountA) external ownerOnly {
+    function initiateFlashLoan(address _solo, address _kyber, address _tokenA, address _tokenB, address _tokenC, uint256 _amountA) external payable ownerOnly {
         // TODO require auth, maybe? 
         // Is it unsafe for someone else to call this and pay for gas? 
         // Assuming the contract cannot go negative.
@@ -98,6 +101,7 @@ contract StrategyV1 is ICallee, DydxFlashloanBase {
 
     function callFunction(address sender, Account.Info memory account, bytes memory data) public override {
         require(callPermitted[msg.sender] == 1, "me/not-permitted");
+        require(false, "HERE");
 
         CallData memory cd = abi.decode(data, (CallData));
 
@@ -108,7 +112,10 @@ contract StrategyV1 is ICallee, DydxFlashloanBase {
         // Or just do trade with external rates passed in to save gas?
         (uint amountB, uint amountC, uint amountA) = doSwap(cd, rateAB, rateBC, rateCA);
 
-        uint finalBalance = MyERC20(cd.tokenA).balanceOf(address(this));
+        uint finalBalance = address(this).balance;
+        if (cd.tokenA != KYBER_ETH_ADDRESS) {
+            finalBalance = MyERC20(cd.tokenA).balanceOf(address(this));
+        }
 
         // TODO check profit?? Or just collateralization? Or neither?
         require(finalBalance > cd.repayAmountA, "me/not-enough");
@@ -116,7 +123,7 @@ contract StrategyV1 is ICallee, DydxFlashloanBase {
         emit LOG(cd.loanAmountA, rateAB, amountB, rateBC, amountC, rateCA, amountA);
     }
 
-    function getRates(CallData memory cd) internal returns (uint rateAB, uint rateBC, uint rateCA) {
+    function getRates(CallData memory cd) internal returns (uint rAB, uint rBC, uint rCA) {
         (uint rateAB, uint slippageAB) = getExpectedRate(cd.kyberAddress, cd.tokenA, cd.tokenB, cd.loanAmountA);
         uint amountB = calcDestAmount(cd.tokenA, cd.tokenB, cd.loanAmountA, rateAB);
 
@@ -142,7 +149,16 @@ contract StrategyV1 is ICallee, DydxFlashloanBase {
     function swapTokens(address kyber, address src, address dst, uint256 srcAmount, uint256 minExchRate) internal 
         returns (uint256 dstAmount) {
 
-        IERC20(src).approve(kyber, srcAmount);
+        require(src != dst, "me/same-curr");
+
+        if (src == KYBER_ETH_ADDRESS) {
+            require(address(this).balance >= srcAmount, "me/eth-bal");
+            return IKyberNetworkProxy(kyber).swapEtherToToken.value(srcAmount)(IERC20(dst), minExchRate);
+        } else if (dst == KYBER_ETH_ADDRESS) {
+            IERC20(src).approve(kyber, srcAmount);
+
+            return IKyberNetworkProxy(kyber).swapTokenToEther(IERC20(src), srcAmount, minExchRate);
+        }
 
         return IKyberNetworkProxy(kyber).swapTokenToToken(IERC20(src), srcAmount, IERC20(dst), minExchRate);
     }
@@ -156,8 +172,8 @@ contract StrategyV1 is ICallee, DydxFlashloanBase {
     function calcDestAmount(address src, address dst, uint256 srcAmount, uint256 exchRate) internal view
         returns (uint dstAmount) {
 
-        uint srcDecimals = MyERC20(src).decimals();
-        uint dstDecimals = MyERC20(dst).decimals();
+        uint srcDecimals = (src == KYBER_ETH_ADDRESS) ? 18 : MyERC20(src).decimals();
+        uint dstDecimals = (dst == KYBER_ETH_ADDRESS) ? 18 : MyERC20(src).decimals();
 
         if (dstDecimals >= srcDecimals) {
             return (srcAmount * exchRate * (10**(dstDecimals - srcDecimals))) / (10**18);

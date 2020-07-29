@@ -32,6 +32,12 @@ describe("Strategy", async function() {
         const wbtc = await ethers.getContractAt('ERC20', legos.erc20.wbtc.address);
         const weth = await ethers.getContractAt('ERC20', legos.erc20.weth.address);
 
+        // Mock eth as a token
+        const eth = {
+            decimals: async () => { return ethers.BigNumber.from(18); },
+            address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+        };
+
         // Fund the strategy and margin, the strategy needs 
         // to maintain a balance to pay back margin
         const signerBalance = await signer.getBalance();
@@ -42,39 +48,41 @@ describe("Strategy", async function() {
         await dai.connect(daiAdmin).transfer(strategy.address, tradeAmount);
 
         const initialBalance = await dai.balanceOf(strategy.address);
-        console.log(`Strategy ${strategy.address} A balance: ${initialBalance}`);
+        console.log(`Strategy ${strategy.address} A balance: ${initialBalance / (10**18)}`);
 
         // TODO, DAI generally has enough in it but check here and fund if necessary
         const soloMarginBalance = await dai.balanceOf(soloMargin.address);
-        console.log(`SoloMargin ${soloMargin.address} A balance: ${soloMarginBalance}`);
+        console.log(`SoloMargin ${soloMargin.address} A balance: ${soloMarginBalance / (10**18)}`);
 
         // Calculate trade outcome
         const initialAmount = tradeAmount;
 
+        //let tokens = [dai, eth, weth];
         let tokens = [dai, wbtc, weth];
-        for (var i = 0; i < tokens.length; i++) {
-            let idx0 = i;
-            let idx1 = (i + 1) % tokens.length;
 
-            var token0 = tokens[idx0];
-            var token1 = tokens[idx1];
+        // for (var i = 0; i < tokens.length; i++) {
+        //     let idx0 = i;
+        //     let idx1 = (i + 1) % tokens.length;
 
-            let decimals0 = await token0.decimals();
-            let decimals1 = await token1.decimals();
+        //     var token0 = tokens[idx0];
+        //     var token1 = tokens[idx1];
 
-            let exchRate = await kyberNetworkProxy.getExpectedRate(token0.address, token1.address, tradeAmount);
-            exchRate = exchRate.expectedRate;
+        //     let decimals0 = await token0.decimals();
+        //     let decimals1 = await token1.decimals();
 
-            let lastTradeAmount = tradeAmount;
+        //     let exchRate = await kyberNetworkProxy.getExpectedRate(token0.address, token1.address, tradeAmount);
+        //     exchRate = exchRate.expectedRate;
 
-            if (decimals1.gte(decimals0)) {
-                tradeAmount = tradeAmount.mul(exchRate).mul(TEN.pow(decimals1 - decimals0)).div(TEN.pow(18));
-            } else {
-                tradeAmount = tradeAmount.mul(exchRate).div(TEN.pow(decimals0 - decimals1 + 18));
-            }
+        //     let lastTradeAmount = tradeAmount;
 
-            console.log(`${lastTradeAmount.toString()} [${idx0}] => ${tradeAmount.toString()} [${idx1}] @${exchRate}`);
-        }
+        //     if (decimals1.gte(decimals0)) {
+        //         tradeAmount = tradeAmount.mul(exchRate).mul(TEN.pow(decimals1 - decimals0)).div(TEN.pow(18));
+        //     } else {
+        //         tradeAmount = tradeAmount.mul(exchRate).div(TEN.pow(decimals0 - decimals1 + 18));
+        //     }
+
+        //     console.log(`${lastTradeAmount.toString()} [${idx0}] => ${tradeAmount.toString()} [${idx1}] @${exchRate}`);
+        // }
 
         const finalAmount = tradeAmount;
 
@@ -86,12 +94,12 @@ describe("Strategy", async function() {
         let tx = await strategy.initiateFlashLoan(
             soloMargin.address,
             kyberNetworkProxy.address,
-            dai.address,
-            wbtc.address,
-            weth.address,
+            tokens[0].address,
+            tokens[1].address,
+            tokens[2].address,
             initialAmount,
             {
-                gasLimit: 6000000
+                gasLimit: 100000
             }
         );
 

@@ -3,7 +3,11 @@ const { ethers } = require('@nomiclabs/buidler');
 const constants = require('./constants.js');
 
 function printRoute(route) {
+    console.log(`================================================================================`)
+    
     let src = route[0].src;
+    
+    console.log(`ROUTE ${src.symbol}`);
 
     route.forEach( function(trade) {
         let srcAmountFmt = trade.src.formatAmount(trade.srcAmount).padEnd(constants.DISPLAY_PADDING);
@@ -12,6 +16,7 @@ function printRoute(route) {
 
         console.log(`=> ${srcAmountFmt}\t${trade.src.symbol}\t@${exchRateFmt}\t=>\t${dstAmountFmt}\t${trade.dst.symbol}`);
     });
+
 
     var profit = route[route.length - 1].dstAmount - route[0].srcAmount;
     var profitFmt = src.formatAmount(profit).padEnd(constants.DISPLAY_PADDING);
@@ -69,7 +74,7 @@ function Executor(strategy, model) {
         // Make sure the reout profit exceeds the gas cost
         let gasCost = constants.GAS_PRICE.mul(constants.GAS_ESTIMATE);
 
-        let profit = bestRoute.expectedProfit.sub(gasCost);
+        let profit = bestRoute.expectedProfit.sub(gasCost); // TODO to ETH
 
         if (profit.lte(0)) {
             console.log(constants.CONSOLE_RED, `EXECUTE ERROR: Profit does not cover gas (${profit.toString()} < ${gasCost.toString()})`);
