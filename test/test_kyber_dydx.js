@@ -8,7 +8,7 @@ const ethers2 = require('ethers'); // Nomic include defines important methods bu
 const TEN = ethers2.BigNumber.from(10);
 
 // https://etherscan.io/address/0x6b175474e89094c44da98b954eedeac495271d0f
-const DAI_ADMIN = "0x9eB7f2591ED42dEe9315b6e2AAF21bA85EA69F8C";
+const DAI_WHALE = "0x9eB7f2591ED42dEe9315b6e2AAF21bA85EA69F8C";
 
 describe("Strategy", async function() {
     // Deploy strategy
@@ -16,14 +16,13 @@ describe("Strategy", async function() {
         await deployments.fixture();
     });
 
+    let doTrade = async (tokens) => {
+
+    }
+
     it("Should trade", async function() {
         const strategyDeployment = await deployments.get("StrategyV1");
         const strategy = await ethers.getContractAt("StrategyV1", strategyDeployment.address);
-
-        const signers = await ethers.getSigners();
-        const signer = signers[0];
-
-        const daiAdmin = await ethers.provider.getSigner(DAI_ADMIN);
 
         // Get contracts
         const soloMargin = await ethers.getContractAt('ISoloMargin', legos.dydx.soloMargin.address);
@@ -31,35 +30,49 @@ describe("Strategy", async function() {
         const dai = await ethers.getContractAt('ERC20', legos.erc20.dai.address);
         const wbtc = await ethers.getContractAt('ERC20', legos.erc20.wbtc.address);
         const weth = await ethers.getContractAt('ERC20', legos.erc20.weth.address);
-
-        // Mock eth as a token
         const eth = {
             decimals: async () => { return ethers.BigNumber.from(18); },
             address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
-        };
+            balanceOf: async (addr) => { return await ethers.provider.getBalance(addr); }
+        }
 
         // Fund the strategy and margin, the strategy needs 
         // to maintain a balance to pay back margin
+        const signers = await ethers.getSigners();
+        const signer = signers[0];
+
         const signerBalance = await signer.getBalance();
         console.log(`Signer balance: ${signerBalance}`);
 
-        var tradeAmount = ethers2.utils.parseUnits('100');
+        var tradeAmount = ethers2.utils.parseUnits('10');
 
-        await dai.connect(daiAdmin).transfer(strategy.address, tradeAmount);
+        // Try sending strat some eth
+        await signer.sendTransaction({
+            to: strategy.address,
+            value: tradeAmount
+        });
 
-        const initialBalance = await dai.balanceOf(strategy.address);
-        console.log(`Strategy ${strategy.address} A balance: ${initialBalance / (10**18)}`);
+        let ethBalance = await eth.balanceOf(strategy.address);
 
-        // TODO, DAI generally has enough in it but check here and fund if necessary
-        const soloMarginBalance = await dai.balanceOf(soloMargin.address);
-        console.log(`SoloMargin ${soloMargin.address} A balance: ${soloMarginBalance / (10**18)}`);
+        // Fund the strategy in DAI
+        const daiWhale = await ethers.provider.getSigner(DAI_WHALE);
+        await dai.connect(daiWhale).transfer(strategy.address, tradeAmount);
 
         // Calculate trade outcome
         const initialAmount = tradeAmount;
 
-        //let tokens = [dai, eth, weth];
-        let tokens = [dai, wbtc, weth];
+        let tokens = [eth, wbtc, dai];
+        //let tokens = [dai, wbtc, eth]; // Works
 
+        const initialBalance = await tokens[0].balanceOf(strategy.address);
+        console.log(`Strategy ${strategy.address} initial balance: ${initialBalance}`);
+
+        // TODO, DAI generally has enough in it but check here and fund if necessary
+        const soloMarginBalance = await tokens[0].balanceOf(soloMargin.address);
+        console.log(`SoloMargin ${soloMargin.address} initial balance: ${soloMarginBalance}`);
+
+        
+        // Calculate the rates up front for sanity checking (slow)
         // for (var i = 0; i < tokens.length; i++) {
         //     let idx0 = i;
         //     let idx1 = (i + 1) % tokens.length;
@@ -84,11 +97,12 @@ describe("Strategy", async function() {
         //     console.log(`${lastTradeAmount.toString()} [${idx0}] => ${tradeAmount.toString()} [${idx1}] @${exchRate}`);
         // }
 
-        const finalAmount = tradeAmount;
+        // const finalAmount = tradeAmount;
 
-        const expectedProfit = finalAmount - initialAmount;
+        // const expectedProfit = finalAmount - initialAmount;
 
-        console.log(`Expected profit: ${expectedProfit}`);
+        // console.log(`Expected profit: ${expectedProfit}`);
+
 
         // Do the trade
         let tx = await strategy.initiateFlashLoan(
@@ -99,7 +113,7 @@ describe("Strategy", async function() {
             tokens[2].address,
             initialAmount,
             {
-                gasLimit: 100000
+                gasLimit: 6000000
             }
         );
 
@@ -108,17 +122,22 @@ describe("Strategy", async function() {
         let txDone = await tx.wait(); // TODO check the log
 
         // Check balances match expected
-        let finalBalance = await dai.balanceOf(strategy.address);
+        let finalBalance = await tokens[0].balanceOf(strategy.address);
 
         const actualProfit = finalBalance - initialBalance;
 
         console.log(`Actual Profit: ${actualProfit}`);
 
         // Transfer to owner account
-        let tx1 = await strategy.withdraw(dai.address, finalBalance);
+        let tx1 = await strategy.withdraw(tokens[0].address, finalBalance);
 
         let ownerBalance = await dai.balanceOf(await signer.getAddress());
 
         expect(ownerBalance).to.equal(finalBalance);
+    });
+
+    after(async () => {
+        // Give ganache some time to log the error
+        await new Promise(resolve => setTimeout(resolve, 3000));
     });
 });
