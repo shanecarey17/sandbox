@@ -131,9 +131,9 @@ describe("Strategy", async function() {
         // Transfer to owner account
         let tx1 = await strategy.withdraw(tokens[0].address, finalBalance);
 
-        let ownerBalance = await dai.balanceOf(await signer.getAddress());
+        let ownerBalance = await tokens[0].balanceOf(await signer.getAddress());
 
-        expect(ownerBalance).to.equal(finalBalance);
+        expect(ownerBalance.sub(signerBalance)).to.equal(finalBalance);
     });
 
     after(async () => {
