@@ -20,6 +20,7 @@ function Token(contract, symbol, decimals, price) {
     this.symbol = symbol;
     this.decimals = decimals;
     this.price = price;
+    this.ethRate = 0;
 
     thistoString = () => {
         return this.contract.address;
@@ -57,7 +58,6 @@ function TokenFactory() {
         for (let coin of data) {
             let price = coin.quote.USD.price;
             this.prices[coin.symbol] = price;
-            console.log(`PRICE $${price} for ${coin.symbol}`);
         }
     }
 
@@ -95,8 +95,6 @@ function TokenFactory() {
 
         if (symbol in this.prices) {
             price = this.prices[symbol];
-        } else {
-            console.log(constants.CONSOLE_RED, `PRICE NOT AVAILABLE FOR ${symbol}`);
         }
 
         var token = new Token(contract, symbol, decimals, price);
@@ -118,7 +116,19 @@ function TokenFactory() {
         let tasks = [];
 
         for await (const line of rl) {
-            let address = line.trim();
+            if (line.length == 0) {
+                continue;
+            }
+            
+            if (line.startsWith('#')) {
+                continue;
+            }
+
+            let data = line.trim();
+            let [symbol, address] = data.split(',');
+
+            assert(symbol !== undefined);
+            assert(address !== undefined);
 
             if (address in addresses) {
                 continue;
@@ -129,7 +139,7 @@ function TokenFactory() {
             tasks.push((async (address) => {
                 let token = await loadToken(address);
 
-                console.log(`Loaded token from config ${token.symbol}`);
+                console.log(`Loaded token from config ${token.symbol} ${token.contract.address}`);
             })(address));
         }
 

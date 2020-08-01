@@ -54,12 +54,12 @@ const run = async () => {
 
     await Promise.all(ethRates);
 
-    let tokenRates = [];
-
     for (let t1 of startTokens) {
         if (t1 === ethToken) {
             continue;
         }
+
+        let tokenRates = [];
         
         for (let t2 of startTokens) {
             if (t1 === t2) {
@@ -70,26 +70,63 @@ const run = async () => {
                 console.log(`Fetching rate for ${t1.symbol} to ${t2.symbol} - ${exchRate}`);
 
                 mdl.updateRate(t1, t2, exchRate);
+
+                if (t2 === ethToken) {
+                    t1.ethRate = exchRate;
+                }
             }));
         }
+
+        await Promise.all(tokenRates);
     }
 
-    await Promise.all(tokenRates);
+    let shouldExec = true;
 
-    let onRateUpdate = async (exchange, src, dst, exchRate) => {
-        console.log(`RATE UPDATE: ${exchange.name} ${src.symbol} ${dst.symbol} ${exchRate / (10**18)}`);
+    let onRateUpdate = async (sender, src, dst, usrSrcDelta, usrDstDelta) => {
+        let srcToken = tokens.TokenFactory.getTokenByAddress(src);
+        let dstToken = tokens.TokenFactory.getTokenByAddress(dst);
 
-        mdl.updateRate(src, dst, exchRate);
+        if ((srcToken === undefined) || (dstToken === undefined)) {
+            return;
+        }
+
+        let updateRate = async (s, d) => {
+            let srcAmount = exc.calcSrcAmount(s);
+
+            let exchRate = await kbs.getExchangeRate(s, d, srcAmount);
+
+            console.log(`RATE UPDATE: ${s.symbol} ${d.symbol} ${exchRate / (10**18)}`);
+
+            mdl.updateRate(s, d, exchRate);
+
+            shouldExec = true;
+
+            if (d === ethToken) {
+                s.ethRate = exchRate;
+            }
+        }
+
+        await Promise.all([
+            updateRate(srcToken, dstToken),
+            updateRate(dstToken, srcToken),
+        ]);
     }
 
     kbs.listen(onRateUpdate);
 
+    let i = 0;
     while (true) {
-        for (let t of startTokens) {
-            await exc.tryExecute(t);
+        if (shouldExec) {
+            console.log(`EXECUTION LOOP ${i++}`);
+
+            for (let t of startTokens) {
+                await exc.tryExecute(t);
+            }
+
+            shouldExec = false;
         }
 
-        await sleep(1000);
+        await sleep(constants.EXECUTE_INTERVAL);
     }
 }
 

@@ -56,11 +56,11 @@ function Executor(strategy, model) {
     }
 
     this.tryExecute = async (src) => {
-        // One trade at a time
-        if (this.tradeInFlight) {
-            console.log(constants.CONSOLE_RED, `EXECUTE FAIL: Trade in flight`);
-            return;
-        }
+        // // One trade at a time
+        // if (this.tradeInFlight) {
+        //     console.log(constants.CONSOLE_RED, `EXECUTE FAIL: Trade in flight`);
+        //     return;
+        // }
 
         let srcAmount = this.calcSrcAmount(src);
 
@@ -69,7 +69,7 @@ function Executor(strategy, model) {
         let bestRoute = this.model.getBestRoute(src, srcAmount);
 
         if (bestRoute.length == 0) {
-            console.log(constants.CONSOLE_RED, `EXECUTE FAIL: No available trade`);
+            console.log(constants.CONSOLE_RED, `EXECUTE FAIL: No available trade ${src.symbol}`);
             return;
         }
 

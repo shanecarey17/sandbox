@@ -2,6 +2,7 @@ const ethers = require("@nomiclabs/buidler").ethers;
 const assert = require('assert');
 
 const constants = require('./constants');
+const tokens = require('./tokens.js');
 
 function Model() {
     //this.exchanges = [];
@@ -16,9 +17,9 @@ function Model() {
     // }
 
     this.updateRate = (src, dst, exchRate) => {
-        if (exchRate == 0) {
-            return;
-        }
+        // if (exchRate == 0) {
+        //     return;
+        // }
 
         if (!this.graph.has(src)) {
             this.graph.set(src, new Map());
@@ -78,6 +79,7 @@ function Model() {
 
         var bestRoute = [];
         var bestReturn = src == src0 ? srcAmount : route[0].srcAmount; // Must exceed starting amount
+        var bestReturnEth = this.calcDstAmount(src0, tokens.TokenFactory.getEthToken(), src0.ethRate, bestReturn);
 
         for (const [dst, exchRate] of this.graph.get(src)) {
             // if (route.findIndex(function(t) { return t.src == dst; }) != -1) {
@@ -105,10 +107,12 @@ function Model() {
             assert(dstRoute[dstRoute.length -1].dst == src0);
 
             var src0Return = dstRoute[dstRoute.length - 1].dstAmount;
+            var src0ReturnEth = this.calcDstAmount(src0, tokens.TokenFactory.getEthToken(), src0.ethRate, src0Return);
 
-            if (src0Return.gte(bestReturn)) {
+            if (src0ReturnEth.gte(bestReturnEth)) {
                 bestRoute = dstRoute; 
-                bestReturn = src0Return;  
+                bestReturn = src0Return;
+                bestReturnEth = src0ReturnEth;
             }
         }
 

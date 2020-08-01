@@ -26,4 +26,6 @@ module.exports = {
     GAS_ESTIMATE: 30000,
 
     TOKENS_FILENAME: './tokens_min.txt',
+
+    EXECUTE_INTERVAL: 5000, // ms
 }
