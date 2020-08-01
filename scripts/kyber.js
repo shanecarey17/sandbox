@@ -5,10 +5,11 @@ const tokens = require('./tokens.js');
 const wallet = require('./wallet.js');
 const constants = require('./constants.js');
 
-function KyberSwap(contract) {
+function KyberSwap(proxyContract, networkContract) {
     this.name = "KyberSwap";
 
-    this.contract = contract;
+    this.proxyContract = proxyContract;
+    this.networkContract = networkContract;
 
     this.getExchangeRate = async (src, dst, srcAmount) => {
         assert(src != dst);
@@ -18,7 +19,7 @@ function KyberSwap(contract) {
         }
 
         try {
-            let result = await this.contract.getExpectedRate(src.contract.address, dst.contract.address, srcAmount);
+            let result = await this.proxyContract.getExpectedRate(src.contract.address, dst.contract.address, srcAmount);
 
             return result.expectedRate;
         } catch (err) {
@@ -27,32 +28,15 @@ function KyberSwap(contract) {
     }
 
     this.listen = (callback) => {
-        this.contract.on('ExecuteTrade', callback);
-        // this.contract.on('ExecuteTrade', async (sender, src, dst, usrSrcDelta, usrDstDelta) => {
-        //     let srcToken = tokens.TokenFactory.getTokenByAddress(src);
-        //     let dstToken = tokens.TokenFactory.getTokenByAddress(dst);
-
-        //     if ((srcToken === undefined) || (dstToken === undefined)) {
-        //         return;
-        //     }
-
-        //     let exchRate;
-
-        //     if (dstToken.decimals.gte(srcToken.decimals)) {
-        //         exchRate = usrDstDelta.mul(constants.TEN.pow(constants.KYBER_PRECISION)).div(usrSrcDelta).div(constants.TEN.pow(dstToken.decimals - srcToken.decimals));
-        //     } else {
-        //         exchRate = usrDstDelta.mul((constants.TEN.pow(srcToken.decimals - dstToken.decimals + constants.KYBER_PRECISION))).div(usrSrcDelta);
-        //     }
-
-        //     callback(this, srcToken, dstToken, exchRate);
-        // });
+        this.networkContract.on('KyberTrade', callback);
     }
 }
 
 module.exports = {
-    load: async function(address, callback) {
-        var contract = await ethers.getContractAt('IKyberNetworkProxy', address, wallet);
+    load: async function(callback) {
+        var proxyContract = await ethers.getContractAt('IKyberNetworkProxy', constants.KYBER_PROXY_ADDRESS, wallet); 
+        var networkContract = await ethers.getContractAt('IKyberNetwork', constants.KYBER_NETWORK_ADDRESS, wallet);
 
-        return new KyberSwap(contract, callback);
+        return new KyberSwap(proxyContract, networkContract);
     }
 }

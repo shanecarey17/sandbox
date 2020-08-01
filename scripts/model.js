@@ -40,22 +40,8 @@ function Model() {
         }
     }
 
-    // let loadRates = (src, srcAmount) => {
-    //     let allTokens = [];
-    //     for (const [tok, _] of this.graph) {
-    //         allTokens.push(tok);
-    //     }
-
-    //     return Promise.all(allTokens.map( (dst) => {
-    //         return Promise.all(this.exchanges.map( (exchange) => { 
-    //             return exchange.getExchangeRate(src, dst, srcAmount).then( () => {} );
-    //         }));
-    //     }));
-    // }
-
     let getBestRouteInternal = (src0, src, srcAmount, n, route) => {
         if (!this.graph.has(src)) {
-            //loadRates(src, srcAmount).then(() => {});
             return [];
         }
 
@@ -79,14 +65,18 @@ function Model() {
 
         var bestRoute = [];
         var bestReturn = src == src0 ? srcAmount : route[0].srcAmount; // Must exceed starting amount
-        var bestReturnEth = this.calcDstAmount(src0, tokens.TokenFactory.getEthToken(), src0.ethRate, bestReturn);
+
+        var bestReturnEth = bestReturn;
+        if (src0.symbol != 'ETH') {
+            bestReturnEth = this.calcDstAmount(src0, tokens.TokenFactory.getEthToken(), src0.ethRate, bestReturn);
+        }
 
         for (const [dst, exchRate] of this.graph.get(src)) {
             // if (route.findIndex(function(t) { return t.src == dst; }) != -1) {
             //     continue;
             // }
 
-            if (dst == src) {
+            if (dst === src) {
                 continue;
             }
 

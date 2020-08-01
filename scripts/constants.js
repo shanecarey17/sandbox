@@ -13,7 +13,7 @@ module.exports = {
 
     PATH_LENGTH: 2,
 
-    START_VALUE_ETH: ethers.utils.parseEther('1'),
+    START_VALUE_ETH: ethers.utils.parseEther('1.5'),
 
     KYBER_PRECISION: 18,
 
@@ -23,9 +23,12 @@ module.exports = {
     ADDRESS_FILE_NAME: 'contracts.json',
 
     GAS_PRICE: ethers.utils.parseUnits('58', 'gwei'),
-    GAS_ESTIMATE: 30000,
+    GAS_ESTIMATE: 1387218,
 
     TOKENS_FILENAME: './tokens_min.txt',
 
     EXECUTE_INTERVAL: 5000, // ms
+
+    KYBER_NETWORK_ADDRESS: '0x7C66550C9c730B6fdd4C03bc2e73c5462c5F7ACC',
+    KYBER_PROXY_ADDRESS: '0x818E6FECD516Ecc3849DAf6845e3EC868087B755',
 }

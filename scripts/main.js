@@ -32,7 +32,7 @@ const run = async () => {
 
     let exc = new exec.Executor(str, mdl);
 
-    let kbs = await kyber.load(legos.kyber.network.address);
+    let kbs = await kyber.load();
 
     let startTokens = await tokens.TokenFactory.allTokens();
 
@@ -82,7 +82,7 @@ const run = async () => {
 
     let shouldExec = true;
 
-    let onRateUpdate = async (sender, src, dst, usrSrcDelta, usrDstDelta) => {
+    let onRateUpdate = async (src, dst) => {
         let srcToken = tokens.TokenFactory.getTokenByAddress(src);
         let dstToken = tokens.TokenFactory.getTokenByAddress(dst);
 
