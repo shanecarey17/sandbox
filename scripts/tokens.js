@@ -61,46 +61,6 @@ function TokenFactory() {
         }
     }
 
-    let loadConfig = async () => {
-        let configTasks = [];
-
-        // The load tokens from config, if present
-        try {
-            let rl = readline.createInterface({
-                input: fs.createReadStream(constants.TOKENS_FILENAME),
-            })
-
-            rl.on('line', (line) => {
-                let address = line.trim();
-
-                if (address in this.tokens) {
-                    return;
-                }
-
-                let task = this.getTokenByAddress(address).then((token) => {
-                    console.log(`Loaded token from config ${token.symbol} ${token.contract.address}`);
-                });
-
-                configTasks.push(task);
-            });
-        } catch(err) {
-            console.log(constants.CONSOLE_RED, `Could not load tokens from config ${constants.TOKENS_FILENAME}`);
-            console.log(err);
-        }
-
-        await Promise.all(configTasks);
-    }
-
-    this.init = async () => {
-        await loadPrices();
-
-        await loadConfig();
-    }
-
-    let appendTokenToFile = (address) => {
-        fs.appendFileSync(constants.TOKENS_FILENAME, address.trim() + '\n');
-    }
-
     let loadToken = async (address) => {
         // TODO, this isnt a great way to deal with kyber's ETH address
         var contract = {address: constants.ETH_ADDRESS};
@@ -148,28 +108,73 @@ function TokenFactory() {
         return token;
     }
 
-    this.getTokenByAddress = (address) => {
-        if (address in this.tokens) {
-            return Promise.resolve(this.tokens[address]);
+    let loadConfig = async () => {
+        let rl = readline.createInterface({
+            input: fs.createReadStream(constants.TOKENS_FILENAME),
+            crlfDelay: Infinity
+        });
+
+        let addresses = {};
+        let tasks = [];
+
+        for await (const line of rl) {
+            let address = line.trim();
+
+            if (address in addresses) {
+                continue;
+            }
+
+            addresses[address] = true;
+
+            tasks.push((async (address) => {
+                let token = await loadToken(address);
+
+                console.log(`Loaded token from config ${token.symbol}`);
+            })(address));
         }
 
-        if (!(address.startsWith('0x'))) {
-            throw new Error(`INVALID TOKEN ADDRESS ${address}`);
-        }
-
-        let px = loadToken(address);
-
-        this.tokens[address] = px;
-
-        return px;
+        await Promise.all(tasks);
     }
 
-    this.getTokenBySymbol = (symbol) => {
-        for (const [address, token] of Object.entries(this.tokens)) {
-            if (token.symbol == symbol) {
-                return token;
-            }
+    this.init = async () => {
+        await loadPrices();
+
+        await loadConfig();
+
+        console.log('TOKENS INITIALIZED');
+    }
+
+    let appendTokenToFile = (address) => {
+        //fs.appendFileSync(constants.TOKENS_FILENAME, address.trim() + '\n');
+    }
+
+    this.getTokenByAddress = (address) => {
+        if (address in this.tokens) {
+            return this.tokens[address];
         }
+
+        // if (!(address.startsWith('0x'))) {
+        //     throw new Error(`INVALID TOKEN ADDRESS ${address}`);
+        // }
+
+        // let px = await loadToken(address);
+
+        // this.tokens[address] = px;
+
+        // return px;
+    }
+
+    // this.getTokenBySymbol = (symbol) => {
+    //     debugger;
+    //     for (const [address, token] of Object.entries(this.tokens)) {
+    //         if (token.symbol == symbol) {
+    //             return token;
+    //         }
+    //     }
+    // }
+
+    this.getEthToken = () => {
+        return this.tokens[constants.ETH_ADDRESS];
     }
 
     this.allTokens = () => {
@@ -177,6 +182,8 @@ function TokenFactory() {
     }
 }
 
+var factory = new TokenFactory();
+
 module.exports = {
-    TokenFactory: new TokenFactory()
+    TokenFactory: factory,
 };

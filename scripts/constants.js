@@ -13,7 +13,7 @@ module.exports = {
 
     PATH_LENGTH: 2,
 
-    START_VALUE_USD: ethers.BigNumber.from(100),
+    START_VALUE_ETH: ethers.utils.parseEther('1'),
 
     KYBER_PRECISION: 18,
 
@@ -25,5 +25,5 @@ module.exports = {
     GAS_PRICE: ethers.utils.parseUnits('58', 'gwei'),
     GAS_ESTIMATE: 30000,
 
-    TOKENS_FILENAME: './tokens.txt',
+    TOKENS_FILENAME: './tokens_min.txt',
 }

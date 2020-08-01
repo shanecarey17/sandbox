@@ -5,38 +5,44 @@ const tokens = require('./tokens.js');
 const wallet = require('./wallet.js');
 const constants = require('./constants.js');
 
-function KyberSwap(contract, callback) {
+function KyberSwap(contract) {
     this.name = "KyberSwap";
 
     this.contract = contract;
-    this.callback = callback;
-
-    let cb = async (sender, src, dst, usrSrcDelta, usrDstDelta) => {
-        src = await tokens.TokenFactory.getTokenByAddress(src);
-        dst = await tokens.TokenFactory.getTokenByAddress(dst);
-
-        let exchRate;
-
-        if (dst.decimals.gte(src.decimals)) {
-            exchRate = usrDstDelta.mul(constants.TEN.pow(constants.KYBER_PRECISION)).div(usrSrcDelta).div(constants.TEN.pow(dst.decimals - src.decimals));
-        } else {
-            exchRate = usrDstDelta.mul((constants.TEN.pow(src.decimals - dst.decimals + constants.KYBER_PRECISION))).div(usrSrcDelta);
-        }
-
-        await this.callback(this, src, dst, exchRate);
-    }
-
-    this.contract.on('ExecuteTrade', cb);
 
     this.getExchangeRate = async (src, dst, srcAmount) => {
         assert(srcAmount != 0);
         assert(src != dst);
 
-        let result = await this.contract.getExpectedRate(src.contract.address, dst.contract.address, srcAmount);
+        try {
+            let result = await this.contract.getExpectedRate(src.contract.address, dst.contract.address, srcAmount);
 
-        await this.callback(this, src, dst, result.expectedRate);
+            return result.expectedRate;
+        } catch (err) {
+            console.log(err);
+        }
+    }
 
-        return result.expectedRate;
+    this.listen = (callback) => {
+        this.contract.on('ExecuteTrade', async (sender, src, dst, usrSrcDelta, usrDstDelta) => {
+            let srcToken = tokens.TokenFactory.getTokenByAddress(src);
+            let dstToken = tokens.TokenFactory.getTokenByAddress(dst);
+
+            debugger;
+            if ((srcToken === undefined) || (dstToken === undefined)) {
+                return;
+            }
+
+            let exchRate;
+
+            if (dstToken.decimals.gte(srcToken.decimals)) {
+                exchRate = usrDstDelta.mul(constants.TEN.pow(constants.KYBER_PRECISION)).div(usrSrcDelta).div(constants.TEN.pow(dstToken.decimals - srcToken.decimals));
+            } else {
+                exchRate = usrDstDelta.mul((constants.TEN.pow(srcToken.decimals - dstToken.decimals + constants.KYBER_PRECISION))).div(usrSrcDelta);
+            }
+
+            callback(this, srcToken, dstToken, exchRate);
+        });
     }
 }
 

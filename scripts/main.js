@@ -6,6 +6,11 @@ const model = require('./model.js');
 const kyber = require('./kyber.js');
 const strategy = require('./strategy.js');
 const exec = require('./exec.js');
+const constants = require('./constants.js');
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 const run = async () => {
     process.on('unhandledRejection', (err) => { 
@@ -27,29 +32,65 @@ const run = async () => {
 
     let exc = new exec.Executor(str, mdl);
 
-    let onRateUpdate = async (exchange, src, dst, exchRate) => {
-        console.log(`RATE UPDATE: ${exchange.name} ${src.symbol} ${dst.symbol} ${exchRate / (10**18)}`);
-
-        mdl.updateRate(exchange, src, dst, exchRate);
-
-        await exc.tryExecute(src);
-    }
-
-    let kbs = await kyber.load(legos.kyber.network.address, onRateUpdate);
-
-    mdl.addExchange(kbs);
-
-    if (false) {
-        // TODO config
-        // Start from a while ago
-        // TODO fetch rsates instead of loading historical
-        let currentBlock = await ethers.provider.getBlockNumber();
-        ethers.provider.resetEventsBlock(currentBlock - 100);
-    }
+    let kbs = await kyber.load(legos.kyber.network.address);
 
     let startTokens = await tokens.TokenFactory.allTokens();
 
-    await exc.bootstrap(startTokens);
+    let ethToken = tokens.TokenFactory.getEthToken();
+
+    let ethRates = [];
+
+    for (let token of startTokens) {
+        if (token === ethToken) {
+            continue;
+        }
+
+        ethRates.push(kbs.getExchangeRate(ethToken, token, constants.START_VALUE_ETH).then( (exchRate) => {
+            console.log(`Fetching rate for ETH to ${token.symbol} - ${exchRate}`);
+
+            mdl.updateRate(ethToken, token, exchRate);
+        }));
+    }
+
+    await Promise.all(ethRates);
+
+    let tokenRates = [];
+
+    for (let t1 of startTokens) {
+        if (t1 === ethToken) {
+            continue;
+        }
+        
+        for (let t2 of startTokens) {
+            if (t1 === t2) {
+                continue;
+            }
+
+            tokenRates.push(kbs.getExchangeRate(t1, t2, exc.calcSrcAmount(t1)).then( (exchRate) => {
+                console.log(`Fetching rate for ${t1.symbol} to ${t2.symbol} - ${exchRate}`);
+
+                mdl.updateRate(t1, t2, exchRate);
+            }));
+        }
+    }
+
+    await Promise.all(tokenRates);
+
+    let onRateUpdate = async (exchange, src, dst, exchRate) => {
+        console.log(`RATE UPDATE: ${exchange.name} ${src.symbol} ${dst.symbol} ${exchRate / (10**18)}`);
+
+        mdl.updateRate(src, dst, exchRate);
+    }
+
+    kbs.listen(onRateUpdate);
+
+    while (true) {
+        for (let t of startTokens) {
+            await exc.tryExecute(t);
+        }
+
+        await sleep(1000);
+    }
 }
 
 function main() {
