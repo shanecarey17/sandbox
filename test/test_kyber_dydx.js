@@ -71,49 +71,57 @@ describe("Strategy", async function() {
         const soloMarginBalance = await tokens[0].balanceOf(soloMargin.address);
         console.log(`SoloMargin ${soloMargin.address} initial balance: ${soloMarginBalance}`);
 
-        
+        let rates = [];
+
         // Calculate the rates up front for sanity checking (slow)
-        // for (var i = 0; i < tokens.length; i++) {
-        //     let idx0 = i;
-        //     let idx1 = (i + 1) % tokens.length;
+        for (var i = 0; i < tokens.length; i++) {
+            let idx0 = i;
+            let idx1 = (i + 1) % tokens.length;
 
-        //     var token0 = tokens[idx0];
-        //     var token1 = tokens[idx1];
+            var token0 = tokens[idx0];
+            var token1 = tokens[idx1];
 
-        //     let decimals0 = await token0.decimals();
-        //     let decimals1 = await token1.decimals();
+            let decimals0 = await token0.decimals();
+            let decimals1 = await token1.decimals();
 
-        //     let exchRate = await kyberNetworkProxy.getExpectedRate(token0.address, token1.address, tradeAmount);
-        //     exchRate = exchRate.expectedRate;
+            let exchRate = await kyberNetworkProxy.getExpectedRate(token0.address, token1.address, tradeAmount);
+            exchRate = exchRate.expectedRate;
 
-        //     let lastTradeAmount = tradeAmount;
+            rates.push(exchRate);
 
-        //     if (decimals1.gte(decimals0)) {
-        //         tradeAmount = tradeAmount.mul(exchRate).mul(TEN.pow(decimals1 - decimals0)).div(TEN.pow(18));
-        //     } else {
-        //         tradeAmount = tradeAmount.mul(exchRate).div(TEN.pow(decimals0 - decimals1 + 18));
-        //     }
+            let lastTradeAmount = tradeAmount;
 
-        //     console.log(`${lastTradeAmount.toString()} [${idx0}] => ${tradeAmount.toString()} [${idx1}] @${exchRate}`);
-        // }
+            if (decimals1.gte(decimals0)) {
+                tradeAmount = tradeAmount.mul(exchRate).mul(TEN.pow(decimals1 - decimals0)).div(TEN.pow(18));
+            } else {
+                tradeAmount = tradeAmount.mul(exchRate).div(TEN.pow(decimals0 - decimals1 + 18));
+            }
 
-        // const finalAmount = tradeAmount;
+            console.log(`${lastTradeAmount.toString()} [${idx0}] => ${tradeAmount.toString()} [${idx1}] @${exchRate}`);
+        }
 
-        // const expectedProfit = finalAmount - initialAmount;
+        const finalAmount = tradeAmount;
 
-        // console.log(`Expected profit: ${expectedProfit}`);
+        const expectedProfit = finalAmount - initialAmount;
+
+        console.log(`Expected profit: ${expectedProfit}`);
 
 
         // Do the trade
-        let tx = await strategy.initiateFlashLoan(
-            soloMargin.address,
-            kyberNetworkProxy.address,
-            tokens[0].address,
-            tokens[1].address,
-            tokens[2].address,
-            initialAmount,
+        let tx = await strategy.trade({
+                solo: soloMargin.address,
+                kyber: kyberNetworkProxy.address,
+                tokenA: tokens[0].address,
+                rateAB: rates[0],
+                tokenB: tokens[1].address,
+                rateBC: rates[1],
+                tokenC: tokens[2].address,
+                rateCA: rates[2],
+                amountA: initialAmount,
+                minReturnA: 0
+            },
             {
-                gasLimit: 6000000
+                gasLimit: 1400000
             }
         );
 
@@ -124,16 +132,24 @@ describe("Strategy", async function() {
         // Check balances match expected
         let finalBalance = await tokens[0].balanceOf(strategy.address);
 
-        const actualProfit = finalBalance - initialBalance;
+        console.log(`Final balance: ${finalBalance}`)
+
+        const actualProfit = finalBalance.sub(initialBalance);
 
         console.log(`Actual Profit: ${actualProfit}`);
 
         // Transfer to owner account
+        let initialOwnerBalance = await tokens[0].balanceOf(await signer.getAddress());
+
+        console.log(`Owner initial balance: ${initialOwnerBalance}`)
+
         let tx1 = await strategy.withdraw(tokens[0].address, finalBalance);
 
-        let ownerBalance = await tokens[0].balanceOf(await signer.getAddress());
+        let finalOwnerBalance = await tokens[0].balanceOf(await signer.getAddress());
 
-        expect(ownerBalance.sub(signerBalance)).to.equal(finalBalance);
+        console.log(`Owner final balance: ${finalOwnerBalance}`)
+
+        expect(finalOwnerBalance.sub(initialOwnerBalance)).to.equal(finalBalance); // Incorrect because of gas
     });
 
     after(async () => {

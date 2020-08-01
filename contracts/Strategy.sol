@@ -14,21 +14,24 @@ contract StrategyV1 is ICallee, DydxFlashloanBase {
     address constant KYBER_ETH_ADDRESS = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     struct CallData {
+        address solo;
+        address kyber;
+
         address tokenA;
+        uint256 rateAB;
         address tokenB;
+        uint256 rateBC;
         address tokenC;
-        uint256 loanAmountA;
-        uint256 repayAmountA;
-        address kyberAddress;
+        uint256 rateCA;
+
+        uint256 amountA;
+        uint256 minReturnA;
     }
 
     event LOG(
         uint amount0,
-        uint rate0,
         uint amount1,
-        uint rate1,
         uint amount2,
-        uint rate2,
         uint amount3
     );
 
@@ -45,6 +48,11 @@ contract StrategyV1 is ICallee, DydxFlashloanBase {
         _;
     }
 
+    modifier permitted() {
+        require(callPermitted[msg.sender] == 1, "me/no");
+        _;
+    }
+
     function grant(address usr) external ownerOnly {
         owners[usr] = 1;
     }
@@ -55,71 +63,67 @@ contract StrategyV1 is ICallee, DydxFlashloanBase {
     }
 
     function withdraw(address token, uint256 amount) external ownerOnly {
+        // TODO do max to avoid revert
         if (token == KYBER_ETH_ADDRESS) {
-            payable(address(msg.sender)).send(amount);
+            payable(address(msg.sender)).transfer(amount);
         } else {
             MyERC20(token).transfer(msg.sender, amount);
         }
     }
 
-    function initiateFlashLoan(address _solo, address _kyber, address _tokenA, address _tokenB, address _tokenC, uint256 _amountA) external payable ownerOnly {
-        // TODO require auth, maybe? 
-        // Is it unsafe for someone else to call this and pay for gas? 
-        // Assuming the contract cannot go negative.
+    function trade(CallData calldata _cd) external payable ownerOnly {
+        CallData memory cd = _cd;
 
         // Solo does not support ether loans, directly 
         // initiate the swap from our balance
-        if (_tokenA == KYBER_ETH_ADDRESS) {
-            Account.Info[] memory accountInfos = new Account.Info[](1);
-            accountInfos[0] = _getAccountInfo();
+        // TODO solo does not have balance of token
+        bool noLoan = false;
 
-            callPermitted[msg.sender] = 1;
+        uint myTokenBalance = 0;
 
-            callFunction(address(this),
-                accountInfos[0],
-                abi.encode(
-                    CallData({
-                        tokenA: _tokenA,
-                        tokenB: _tokenB,
-                        tokenC: _tokenC,
-                        loanAmountA: _amountA,
-                        repayAmountA: 0, // TODO
-                        kyberAddress: _kyber
-                    })
-                )
-            );
+        if (cd.tokenA == KYBER_ETH_ADDRESS) {
+            noLoan = true;
+        } else {
+            myTokenBalance = IERC20(cd.tokenA).balanceOf(address(this));
 
-            callPermitted[msg.sender] = 0;
-
-            return;
+            if (myTokenBalance >= cd.amountA) {
+                noLoan = true;
+            }
         }
 
-        // Otherwise do the flash loan
-        ISoloMargin solo = ISoloMargin(_solo);
+        if (noLoan) {
+            tradeNoLoan(cd);
+        } else {
+            uint loanAmount = cd.amountA - myTokenBalance;
 
-        uint256 marketIdA = _getMarketIdFromTokenAddress(_solo, _tokenA);
-        uint256 repayAmountA = _getRepaymentAmountInternal(_amountA);
+            tradeWithLoan(cd, loanAmount);
+        }
+    }
 
-        MyERC20(_tokenA).approve(_solo, repayAmountA);
+    function tradeNoLoan(CallData memory cd) internal {
+        Account.Info[] memory accountInfos = new Account.Info[](1);
+        accountInfos[0] = _getAccountInfo();
+
+        cd.minReturnA = 0;
+
+        callPermitted[msg.sender] = 1;
+        callFunction(address(this), accountInfos[0], abi.encode(cd));
+        callPermitted[msg.sender] = 0;
+    }
+
+    function tradeWithLoan(CallData memory cd, uint loanAmount) internal {
+        uint256 marketIdA = _getMarketIdFromTokenAddress(cd.solo, cd.tokenA);
+        uint256 minReturnA = _getRepaymentAmountInternal(loanAmount);
+
+        cd.minReturnA = minReturnA;
+
+        MyERC20(cd.tokenA).approve(cd.solo, minReturnA);
 
         Actions.ActionArgs[] memory operations = new Actions.ActionArgs[](3);
 
-        operations[0] = _getWithdrawAction(marketIdA, _amountA);
-
-        operations[1] = _getCallAction(
-            abi.encode(
-                CallData({
-                    tokenA: _tokenA,
-                    tokenB: _tokenB,
-                    tokenC: _tokenC,
-                    loanAmountA: _amountA,
-                    repayAmountA: repayAmountA,
-                    kyberAddress: _kyber
-                })
-            )
-        );
-
-        operations[2] = _getDepositAction(marketIdA, repayAmountA);
+        operations[0] = _getWithdrawAction(marketIdA, cd.amountA);
+        operations[1] = _getCallAction(abi.encode(cd));
+        operations[2] = _getDepositAction(marketIdA, minReturnA);
 
         Account.Info[] memory accountInfos = new Account.Info[](1);
         accountInfos[0] = _getAccountInfo();
@@ -128,81 +132,45 @@ contract StrategyV1 is ICallee, DydxFlashloanBase {
         // through here by temporarily allowing the solo contract to invoke
         // it. Solo calls the method through the OperationImpl library, which
         // maintains msg.sender of the calling contract (ie.. solo) 
-        callPermitted[_solo] = 1;
-
-        solo.operate(accountInfos, operations);
-
-        callPermitted[_solo] = 0;
+        callPermitted[cd.solo] = 1;
+        ISoloMargin(cd.solo).operate(accountInfos, operations);
+        callPermitted[cd.solo] = 0;
     }
 
-    function callFunction(address sender, Account.Info memory account, bytes memory data) public override {
-        require(callPermitted[msg.sender] == 1, "me/nah");
-
+    function callFunction(address sender, Account.Info memory account, bytes memory data) public override permitted {
         CallData memory cd = abi.decode(data, (CallData));
 
-        uint initialBalance = cd.tokenA == KYBER_ETH_ADDRESS ?
-            Utils.getBalance(address(this))
-            : MyERC20(cd.tokenA).balanceOf(address(this));
+        uint initialBalance = getMyBalance(cd.tokenA);
 
-        (uint rateAB, uint rateBC, uint rateCA) = getRates(cd);
+        (uint amountB, uint amountC, uint amountA) = doSwap(cd);
 
-        // Or just do trade with external rates passed in to save gas?
-        (uint amountB, uint amountC, uint amountA) = doSwap(cd, rateAB, rateBC, rateCA);
+        uint finalBalance = getMyBalance(cd.tokenA);
 
-        uint finalBalance = cd.tokenA == KYBER_ETH_ADDRESS ?
-            Utils.getBalance(address(this))
-            : MyERC20(cd.tokenA).balanceOf(address(this));
+        int profit = int(finalBalance - initialBalance);
 
         // TODO check profit?? Or just collateralization? Or neither?
-        require(finalBalance > cd.repayAmountA, "me/2lo");
+        require(profit < int(cd.minReturnA), "me/2lo");
 
-        emit LOG(cd.loanAmountA, rateAB, amountB, rateBC, amountC, rateCA, amountA);
+        emit LOG(cd.amountA, amountB, amountC, amountA);
     }
 
-    function getRates(CallData memory cd) internal returns (uint rAB, uint rBC, uint rCA) {
-        (uint rateAB, uint slippageAB) = getExpectedRate(cd.kyberAddress, cd.tokenA, cd.tokenB, cd.loanAmountA);
-        uint amountB = calcDestAmount(cd.tokenA, cd.tokenB, cd.loanAmountA, rateAB);
-
-        (uint rateBC, uint slippageBC) = getExpectedRate(cd.kyberAddress, cd.tokenB, cd.tokenC, amountB);
-        uint amountC = calcDestAmount(cd.tokenB, cd.tokenC, amountB, rateAB);
-
-        (uint rateCA, uint slippageCA) = getExpectedRate(cd.kyberAddress, cd.tokenC, cd.tokenA, amountC);
-        uint amountA = calcDestAmount(cd.tokenC, cd.tokenA, amountC, rateCA);
-
-        return (slippageAB, slippageBC, slippageCA); // TODO is this the right rate?
-    }
-
-    function getExpectedRate(address kyber, address src, address dst, uint256 srcAmount) internal view 
-        returns (uint256 expectedRate, uint256 slippageRate) {
-
-        return IKyberNetworkProxy(kyber).getExpectedRate(IERC20(src), IERC20(dst), srcAmount);
-    }
-
-    function calcDestAmount(address src, address dst, uint256 srcAmount, uint256 exchRate) internal view
-        returns (uint dstAmount) {
-
-        uint srcDecimals = (src == KYBER_ETH_ADDRESS) ? 18 : MyERC20(src).decimals();
-        uint dstDecimals = (dst == KYBER_ETH_ADDRESS) ? 18 : MyERC20(dst).decimals();
-
-        if (dstDecimals >= srcDecimals) {
-            return (srcAmount * exchRate * (10**(dstDecimals - srcDecimals))) / (10**18);
+    function getMyBalance(address token) internal returns (uint) {
+        if (token == KYBER_ETH_ADDRESS) {
+            return Utils.getBalance(address(this));
         } else {
-            return (srcAmount * exchRate) / (10**(srcDecimals - dstDecimals + 18));
+            return IERC20(token).balanceOf(address(this));
         }
     }
 
-    function doSwap(CallData memory cd, uint rateAB, uint rateBC, uint rateCA) internal 
-        returns (uint amountB, uint amountC, uint amountA) {
-
-        uint swappedAB = swapTokens(cd.kyberAddress, cd.tokenA, cd.tokenB, cd.loanAmountA, rateAB);
-        uint swappedBC = swapTokens(cd.kyberAddress, cd.tokenB, cd.tokenC, swappedAB, rateBC);
-        uint swappedCA = swapTokens(cd.kyberAddress, cd.tokenC, cd.tokenA, swappedBC, rateCA);
+    function doSwap(CallData memory cd) internal returns (uint amountB, uint amountC, uint amountA) {
+        uint swappedAB = swapTokens(cd.kyber, cd.tokenA, cd.tokenB, cd.amountA, cd.rateAB);
+        uint swappedBC = swapTokens(cd.kyber, cd.tokenB, cd.tokenC, swappedAB, cd.rateBC);
+        uint swappedCA = swapTokens(cd.kyber, cd.tokenC, cd.tokenA, swappedBC, cd.rateCA);
 
         return (swappedAB, swappedBC, swappedCA);
     }
 
-    function swapTokens(address kyber, address src, address dst, uint256 srcAmount, uint256 minExchRate) internal 
-        returns (uint256 dstAmount) {
+    function swapTokens(address kyber, address src, address dst, uint256 srcAmount, uint256 minExchRate) internal returns (uint256 dstAmount) {
 
         require(src != dst, "me/same-curr");
 

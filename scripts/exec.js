@@ -34,6 +34,25 @@ function Executor(strategy, model) {
 
     this.tradeInFlight = false;
 
+    let calcSrcAmount = (src) => {
+        // Calculate the amount in terms of the configured USD value
+        let srcValueUSD = constants.START_VALUE_USD.toNumber();
+
+        let srcAmount = BigInt(Math.floor(srcValueUSD / src.price * (10**src.decimals.toNumber())));
+
+        return ethers.BigNumber.from(srcAmount.toString());
+    }
+
+    this.bootstrap = async (tokens) => {
+        for (let t of tokens) {
+            if (t.price == 0) {
+                continue;
+            }
+
+            await this.model.getBestRoute(t, calcSrcAmount(t));
+        }
+    }
+
     this.tryExecute = async (src) => {
         // One trade at a time
         if (this.tradeInFlight) {
@@ -42,15 +61,13 @@ function Executor(strategy, model) {
         }
 
         // If there is no price info, skip for now
+        console.log(src.price);
         if (src.price <= 0) {
             console.log(constants.CONSOLE_RED, `EXECUTE FAIL: Bad price ${src.symbol} ${src.price.toFixed(2)}`);
             return;
         }
 
-        // Calculate the amount in terms of the configured USD value
-        let srcValueUSD = constants.START_VALUE_USD;
-
-        let srcAmount = ethers.BigNumber.from(BigInt(Math.floor(srcValueUSD / src.price * (10**src.decimals))).toString()); // Careful
+        let srcAmount = calcSrcAmount(src);
 
         // Get the best route for this coin
         // has the side effect of populating the graph faster

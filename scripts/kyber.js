@@ -30,6 +30,7 @@ function KyberSwap(contract, callback) {
 
     this.getExchangeRate = async (src, dst, srcAmount) => {
         assert(srcAmount != 0);
+        assert(src != dst);
 
         let result = await this.contract.getExpectedRate(src.contract.address, dst.contract.address, srcAmount);
 

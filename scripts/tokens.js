@@ -2,6 +2,7 @@ const fs = require('fs');
 const assert = require('assert');
 const axios = require('axios');
 const ethers = require("@nomiclabs/buidler").ethers;
+const readline = require('readline');
 
 const wallet = require('./wallet.js');
 const constants = require('./constants.js');
@@ -19,22 +20,22 @@ function Token(contract, symbol, decimals, price) {
     this.symbol = symbol;
     this.decimals = decimals;
     this.price = price;
-}
 
-Token.prototype.toString = function() {
-    return this.contract.address;
-}
-
-Token.prototype.formatAmount = function(amt) {
-    return (amt / constants.TEN.pow(this.decimals)).toFixed(constants.DISPLAY_DECIMALS);
-}
-
-Token.prototype.balanceOf = async function(address) {
-    if (this.contract.address === constants.ETH_ADDRESS) {
-        return await ethers.provider.getBalance(address);
+    thistoString = () => {
+        return this.contract.address;
     }
 
-    return await this.contract.balanceOf(address);
+    this.formatAmount = (amt) => {
+        return (amt / constants.TEN.pow(this.decimals)).toFixed(constants.DISPLAY_DECIMALS);
+    }
+
+    this.balanceOf = async (address) => {
+        if (this.contract.address === constants.ETH_ADDRESS) {
+            return await ethers.provider.getBalance(address);
+        }
+
+        return await this.contract.balanceOf(address);
+    }
 }
 
 // TokenFactory
@@ -43,13 +44,8 @@ function TokenFactory() {
     this.tokens = {};
     this.prices = {};
 
-    this.init = async function() {
-        try {
-            this.tokens = JSON.parse(fs.readFileSync('tokens.json', 'utf8').toString());
-        } catch(err) {
-            console.log('Failed to load tokens from config "./tokens.json"');
-        }
-
+    let loadPrices = async () => {
+        // Load prices first, tokens dont fetch them dynamically
         let response = await axios.get(`${coinMarketCapEndpoint}/v1/cryptocurrency/listings/latest`, {
             headers: {
                 'X-CMC_PRO_API_KEY': coinMarketCapApiKey
@@ -59,15 +55,53 @@ function TokenFactory() {
         let data = response.data.data;
 
         for (let coin of data) {
-            this.prices[coin.symbol] = coin.quote.USD.price;
+            let price = coin.quote.USD.price;
+            this.prices[coin.symbol] = price;
+            console.log(`PRICE $${price} for ${coin.symbol}`);
         }
     }
 
-    this.getTokenByAddress = async function(address) {
-        if (address in this.tokens) {
-            return this.tokens[address];
+    let loadConfig = async () => {
+        let configTasks = [];
+
+        // The load tokens from config, if present
+        try {
+            let rl = readline.createInterface({
+                input: fs.createReadStream(constants.TOKENS_FILENAME),
+            })
+
+            rl.on('line', (line) => {
+                let address = line.trim();
+
+                if (address in this.tokens) {
+                    return;
+                }
+
+                let task = this.getTokenByAddress(address).then((token) => {
+                    console.log(`Loaded token from config ${token.symbol} ${token.contract.address}`);
+                });
+
+                configTasks.push(task);
+            });
+        } catch(err) {
+            console.log(constants.CONSOLE_RED, `Could not load tokens from config ${constants.TOKENS_FILENAME}`);
+            console.log(err);
         }
 
+        await Promise.all(configTasks);
+    }
+
+    this.init = async () => {
+        await loadPrices();
+
+        await loadConfig();
+    }
+
+    let appendTokenToFile = (address) => {
+        fs.appendFileSync(constants.TOKENS_FILENAME, address.trim() + '\n');
+    }
+
+    let loadToken = async (address) => {
         // TODO, this isnt a great way to deal with kyber's ETH address
         var contract = {address: constants.ETH_ADDRESS};
         var symbol = 'ETH';
@@ -97,21 +131,49 @@ function TokenFactory() {
             }
         }
 
-        var price = symbol in this.prices ? this.prices[symbol] : 0;
+        var price = 0;
+
+        if (symbol in this.prices) {
+            price = this.prices[symbol];
+        } else {
+            console.log(constants.CONSOLE_RED, `PRICE NOT AVAILABLE FOR ${symbol}`);
+        }
 
         var token = new Token(contract, symbol, decimals, price);
 
         this.tokens[address] = token;
 
+        appendTokenToFile(address);
+
         return token;
     }
 
-    this.getTokenBySymbol = function(symbol) {
+    this.getTokenByAddress = (address) => {
+        if (address in this.tokens) {
+            return Promise.resolve(this.tokens[address]);
+        }
+
+        if (!(address.startsWith('0x'))) {
+            throw new Error(`INVALID TOKEN ADDRESS ${address}`);
+        }
+
+        let px = loadToken(address);
+
+        this.tokens[address] = px;
+
+        return px;
+    }
+
+    this.getTokenBySymbol = (symbol) => {
         for (const [address, token] of Object.entries(this.tokens)) {
             if (token.symbol == symbol) {
                 return token;
             }
         }
+    }
+
+    this.allTokens = () => {
+        return Promise.all(Object.values(this.tokens));
     }
 }
 

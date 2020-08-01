@@ -37,9 +37,19 @@ const run = async () => {
 
     let kbs = await kyber.load(legos.kyber.network.address, onRateUpdate);
 
-    // Start from a while ago
-    let currentBlock = await ethers.provider.getBlockNumber();
-    ethers.provider.resetEventsBlock(currentBlock - 100);
+    mdl.addExchange(kbs);
+
+    if (false) {
+        // TODO config
+        // Start from a while ago
+        // TODO fetch rsates instead of loading historical
+        let currentBlock = await ethers.provider.getBlockNumber();
+        ethers.provider.resetEventsBlock(currentBlock - 100);
+    }
+
+    let startTokens = await tokens.TokenFactory.allTokens();
+
+    await exc.bootstrap(startTokens);
 }
 
 function main() {
