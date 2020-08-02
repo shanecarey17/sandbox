@@ -1,27 +1,9 @@
 const { ethers } = require('@nomiclabs/buidler');
 
 const constants = require('./constants.js');
+const tokens = require('./tokens.js');
 
-function printRoute(route) {
-    let src = route[0].src;
 
-    route.forEach( function(trade) {
-        let srcAmountFmt = trade.src.formatAmount(trade.srcAmount).padEnd(constants.DISPLAY_PADDING);
-        let dstAmountFmt = trade.dst.formatAmount(trade.dstAmount).padEnd(constants.DISPLAY_PADDING);
-        let exchRateFmt = (trade.exchRate / (10**18)).toFixed(constants.DISPLAY_DECIMALS).padEnd(constants.DISPLAY_PADDING);
-
-        console.log(`=> ${srcAmountFmt}\t${trade.src.symbol}\t@${exchRateFmt}\t=>\t${dstAmountFmt}\t${trade.dst.symbol}`);
-    });
-
-    var profit = route[route.length - 1].dstAmount - route[0].srcAmount;
-    var profitFmt = src.formatAmount(profit).padEnd(constants.DISPLAY_PADDING);
-    var profitUSDFmt = (Number(profitFmt) * src.price).toFixed(2);
-
-    var colorFmt = profit > 0 ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
-    console.log(colorFmt, `++ ${profitFmt}\t${src.symbol}\t$${profitUSDFmt}`);
-
-    console.log(`--------------------------------------------------------------------------------`);
-}
 
 function Executor(strategy, model) {
     this.strategy = strategy;
@@ -29,30 +11,65 @@ function Executor(strategy, model) {
 
     this.tradeInFlight = false;
 
+    let printRoute = (route) => {
+        console.log(`================================================================================`);
+        
+        let src = route[0].src;
+        
+        console.log(`ROUTE ${src.symbol}`);
+
+        route.forEach( function(trade) {
+            let srcAmountFmt = trade.src.formatAmount(trade.srcAmount).padEnd(constants.DISPLAY_PADDING);
+            let dstAmountFmt = trade.dst.formatAmount(trade.dstAmount).padEnd(constants.DISPLAY_PADDING);
+            let exchRateFmt = (trade.exchRate / (10**18)).toFixed(constants.DISPLAY_DECIMALS).padEnd(constants.DISPLAY_PADDING);
+
+            console.log(`=> ${srcAmountFmt}\t${trade.src.symbol}\t@${exchRateFmt}\t=>\t${dstAmountFmt}\t${trade.dst.symbol}`);
+        });
+
+
+        var profit = route[route.length - 1].dstAmount.sub(route[0].srcAmount);
+        var profitFmt = src.formatAmount(profit).padEnd(constants.DISPLAY_PADDING);
+
+        let eth = tokens.TokenFactory.getEthToken();
+        let ethRate = src === eth ? ethers.utils.parseEther('1') : this.model.getBestRate(src, eth, profit); // profit as amt here is eh
+        let ethProfit = this.model.calcDstAmount(src, eth, ethRate, profit);
+        let ethProfitFmt = eth.formatAmount(ethProfit);
+
+        var profitUSDFmt = (ethProfitFmt * eth.price).toFixed(2);
+
+        var colorFmt = profit > 0 ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
+        console.log(colorFmt, `++ ${profitFmt}\t${src.symbol}\t${ethProfitFmt} ${eth.symbol} - $${profitUSDFmt}`);
+
+        console.log(`--------------------------------------------------------------------------------`);
+    }
+
+    this.calcSrcAmount = (src) => {
+        let eth = tokens.TokenFactory.getEthToken();
+
+        if (src === eth) {
+            return constants.START_VALUE_ETH;
+        }
+
+        let ethRate = this.model.getBestRate(eth, src, constants.START_VALUE_ETH);
+
+        return this.model.calcDstAmount(eth, src, ethRate, constants.START_VALUE_ETH);
+    }
+
     this.tryExecute = async (src) => {
-        // One trade at a time
-        if (this.tradeInFlight) {
-            console.log(constants.CONSOLE_RED, `EXECUTE FAIL: Trade in flight`);
-            return;
-        }
+        // // One trade at a time
+        // if (this.tradeInFlight) {
+        //     console.log(constants.CONSOLE_RED, `EXECUTE FAIL: Trade in flight`);
+        //     return;
+        // }
 
-        // If there is no price info, skip for now
-        if (src.price <= 0) {
-            console.log(constants.CONSOLE_RED, `EXECUTE FAIL: Bad price ${src.symbol} ${src.price.toFixed(2)}`);
-            return;
-        }
-
-        // Calculate the amount in terms of the configured USD value
-        let srcValueUSD = constants.START_VALUE_USD;
-
-        let srcAmount = ethers.BigNumber.from(BigInt(Math.floor(srcValueUSD / src.price * (10**src.decimals))).toString()); // Careful
+        let srcAmount = this.calcSrcAmount(src);
 
         // Get the best route for this coin
         // has the side effect of populating the graph faster
         let bestRoute = this.model.getBestRoute(src, srcAmount);
 
         if (bestRoute.length == 0) {
-            console.log(constants.CONSOLE_RED, `EXECUTE FAIL: No available trade`);
+            console.log(constants.CONSOLE_RED, `EXECUTE FAIL: No available trade ${src.symbol}`);
             return;
         }
 
@@ -69,7 +86,7 @@ function Executor(strategy, model) {
         // Make sure the reout profit exceeds the gas cost
         let gasCost = constants.GAS_PRICE.mul(constants.GAS_ESTIMATE);
 
-        let profit = bestRoute.expectedProfit.sub(gasCost);
+        let profit = bestRoute.expectedProfit.sub(gasCost); // TODO to ETH
 
         if (profit.lte(0)) {
             console.log(constants.CONSOLE_RED, `EXECUTE ERROR: Profit does not cover gas (${profit.toString()} < ${gasCost.toString()})`);
@@ -77,6 +94,7 @@ function Executor(strategy, model) {
         }
 
         // Do the trade
+        this.tradeInFlight = true;
         this.strategy.executeTrade(bestRoute)
             .then( (tx) => {
                 console.log(constants.CONSOLE_GREEN, 'TRANSACTION SUCCEEDED');
@@ -87,7 +105,7 @@ function Executor(strategy, model) {
                 console.log(err);
             })
             .finally( () => {
-                tradeInFlight = false;
+                this.tradeInFlight = false;
             });
 
         console.log(constants.CONSOLE_GREEN, `EXECUTE SUCCESS`);

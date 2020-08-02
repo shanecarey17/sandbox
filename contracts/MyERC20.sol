@@ -8,7 +8,7 @@ interface MyERC20 {
     function approve(address _spender, uint _value) external returns (bool success);
     function allowance(address _owner, address _spender) external view returns (uint remaining);
     function decimals() external view returns(uint digits);
-    function symbol() external view returns (string memory symbol);
+    function symbol() external view returns (string memory symb);
 
     event Approval(address indexed _owner, address indexed _spender, uint _value);
 }
