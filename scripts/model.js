@@ -72,10 +72,6 @@ function Model() {
         }
 
         for (const [dst, exchRate] of this.graph.get(src)) {
-            // if (route.findIndex(function(t) { return t.src == dst; }) != -1) {
-            //     continue;
-            // }
-
             if (dst === src) {
                 continue;
             }
@@ -123,7 +119,26 @@ function Model() {
     }
 
     this.getBestRate = (src, dst, srcAmount) => {
-        return this.graph.get(src).get(dst);
+        assert(this.graph.has(src));
+        let srcNode = this.graph.get(src);
+        assert(srcNode.has(dst));
+        return srcNode.get(dst);
+    }
+
+    this.serialize = () => {
+        let data = {};
+
+        for (const [src, exchRates] of this.graph) {
+            for (const [dst, exchRate] of exchRates) {
+                if (!(src.symbol in data)) {
+                    data[src.symbol] = {};
+                }
+
+                data[src.symbol][dst.symbol] = (exchRate / (10**18)).toFixed(constants.DISPLAY_DECIMALS);
+            }
+        }
+
+        return data;
     }
     
     // TODO add method to get direct rate

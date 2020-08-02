@@ -12,7 +12,9 @@ function KyberSwap(proxyContract, networkContract) {
     this.networkContract = networkContract;
 
     this.getExchangeRate = async (src, dst, srcAmount) => {
-        assert(src != dst);
+        if (src === dst) {
+            return constants.ZERO;
+        }
 
         if (srcAmount.eq(0)) {
             return constants.ZERO;
