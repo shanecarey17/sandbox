@@ -33,30 +33,46 @@ $(document).ready( function() {
     }
 
     function updateRoutes(routes) {
+        routes.sort((lhs, rhs) => {
+            return lhs.ethProfit > rhs.ethProfit ? -1 : 1;
+        });
+
         let table = `
             <table class="table table-striped table-sm">
+              <thead>
+                <th></th>
+                <th>src</th>
+                <th>amt</th>
+                <th>rate</th>
+                <th>dst</th>
+                <th>amt</th>
+                <th>rate</th>
+                <th>dst</th>
+                <th>amt</th>
+                <th>rate</th>
+                <th>dst</th>
+                <th>amt</th>
+                <th>profit src</th>
+                <th>profit eth</th>
+                <th>profit usd</th>
+              </thead>
               <tbody>
                   ${$.map(routes, (route, idx) => {
                       return `
                           <tr>
+                              <td>${idx}</td>
                               <td>${route.trades[0].src}</td>
-                              ${$.map(route.trades, (trade) => {
-                                  return `
-                                      <td>Rate</td>
-                                      <td>${trade.dst}</td>
-                                  `;
-                              }).join('')}
-                              <td>Profit</td>
-                          </tr>
-                          <tr>
                               <td>${route.trades[0].srcAmount}</td>
                               ${$.map(route.trades, (trade) => {
                                   return `
                                       <td>${trade.exchRate}</td>
+                                      <td>${trade.dst}</td>
                                       <td>${trade.dstAmount}</td>
                                   `;
                               }).join('')}
                               <td>${route.srcProfit}</td>
+                              <td>${route.ethProfit}</td>
+                              <td>${route.usdProfit}</td>
                           </tr>
                       `;
                   }).join('')}

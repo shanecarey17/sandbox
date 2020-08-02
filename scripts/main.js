@@ -117,8 +117,16 @@ const run = async () => {
         server.sendMessage({
             rates: mdl.serialize(),
             routes: routes.map((r) => {
+                let src = r[0].src;
+
+                let srcProfit = r[r.length - 1].dstAmount.sub(r[0].srcAmount);
+                let ethProfit = mdl.calcDstAmount(r[0].src, ethToken, src.ethRate, srcProfit);
+                let usdProfit = ethToken.formatAmount(ethProfit) * ethToken.price;
+
                 return {
-                    srcProfit: r[0].src.formatAmount(r[r.length - 1].srcAmount.sub(r[0].srcAmount)),
+                    srcProfit: src.formatAmount(srcProfit),
+                    ethProfit: ethToken.formatAmount(ethProfit),
+                    usdProfit: usdProfit.toFixed(2),
                     trades: r.map((t) => {
                         return {
                             src: t.src.symbol,
