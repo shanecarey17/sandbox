@@ -63,12 +63,14 @@ module.exports = {
             timeout: 300 * 1000,
         },
         mainnet: {
-            url: INFURA_URL,
             accounts: [
                 MAINNET_KEY
             ],
+            url: 'https://mainnet.infura.io/v3/e4aa52bf76a948ea92ae7772d299aef0', // Chris
             other_urls: [
-                'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d',
+                'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d', // shanecarey17@gmail.com
+                'https://mainnet.infura.io/v3/b5f949ae5053431b961f7497d468f37b', // shane.carey@me.com
+                'https://mainnet.infura.io/v3/d1e85bc998be4291a691f223978d2d4b', // shane.carey@icloud.com
             ]
         }
     },

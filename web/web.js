@@ -4,30 +4,46 @@ $(document).ready( function() {
     let currRates = null;
 
     function updateRates(rates) {
-        let table = `
-            <table class="table table-striped table-sm">
-              <thead>
-                <th>*</th>
-                ${Object.keys(rates).map((symbol) => {
-                    return `<th>${symbol}</th>`
-                }).join('')}
-              </thead>
-              <tbody>
-                ${$.map(rates, (exchRates, symbol) => {
-                    return `<tr><td>${symbol}</td>${Object.keys(rates).map((col) => {
-                        let color = "";
-                        if (currRates !== null && currRates[symbol][col] != rates[symbol][col]) {
-                            color = "table-success";
-                        }
+        if ($('#rates-table').length == 0) {
+            let table = `
+                <table id="rates-table" class="table table-striped table-sm">
+                  <thead>
+                    <th>*</th>
+                    ${Object.keys(rates).map((symbol) => {
+                        return `<th>${symbol}</th>`
+                    }).join('')}
+                  </thead>
+                  <tbody>
+                    ${$.map(rates, (exchRates, symbol) => {
+                        return `<tr><td>${symbol}</td>${Object.keys(rates).map((col) => {
+                            let color = "";
+                            if (currRates !== null && currRates[symbol][col] != rates[symbol][col]) {
+                                color = "table-success";
+                            }
 
-                        return `<td class=${color}>${exchRates[col]}</td>`;
-                    }).join('')}</tr>`;
-                }).join('')}
-              </tbody>
-            </table>
-        `;
+                            return `<td id="${symbol}-${col}-cell" class=${color}>${exchRates[col]}</td>`;
+                        }).join('')}</tr>`;
+                    }).join('')}
+                  </tbody>
+                </table>
+            `;
 
-        $('#rates-table-div').html(table);
+            $('#rates-table-div').html(table);
+        } else {
+            $.map(rates, (exchRates, src) => {
+                $.map(exchRates, (exchRate, dst) => {
+                    let cell = $(`#${src}-${dst}-cell`);
+                    let prevText = cell.text();
+                    cell.text(exchRate);
+                    if (prevText !== exchRate) {
+                        cell.addClass('table-success');
+                    } else {
+                        cell.removeClass('table-success');
+                    }
+                });
+            })
+        }
+
 
         currRates = rates;
     }
