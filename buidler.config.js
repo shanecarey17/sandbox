@@ -2,6 +2,9 @@ usePlugin('@nomiclabs/buidler-ganache');
 usePlugin("@nomiclabs/buidler-waffle");
 usePlugin("buidler-deploy");
 
+// Custom
+usePlugin('buidler-hack');
+
 const fs = require('fs');
 
 const MNEMONIC = fs.readFileSync('.secret').toString().trim();
@@ -63,6 +66,9 @@ module.exports = {
             url: INFURA_URL,
             accounts: [
                 MAINNET_KEY
+            ],
+            other_urls: [
+                'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d',
             ]
         }
     },
