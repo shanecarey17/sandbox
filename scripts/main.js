@@ -95,12 +95,13 @@ const run = async () => {
     kbs.listen(onUpdate);
 
     while (true) {
-        var token = tokenQueue[0];
+        await Promise.all(tokenQueue.slice(0, constants.CONCURRENT_REQUEST_BATCHES).map((token) => {
+            tokenQueue.push(token);
+            
+            return updateTokenRates(token);
+        }));
 
-        await updateTokenRates(token);
-
-        tokenQueue.splice(0, 1);
-        tokenQueue.push(token);
+        tokenQueue.splice(0, constants.CONCURRENT_REQUEST_BATCHES);
 
         let routes = [];
 
