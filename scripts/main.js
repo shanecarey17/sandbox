@@ -7,6 +7,7 @@ const kyber = require('./kyber.js');
 const strategy = require('./strategy.js');
 const exec = require('./exec.js');
 const constants = require('./constants.js');
+const server = require('./server.js');
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -34,97 +35,110 @@ const run = async () => {
 
     let kbs = await kyber.load();
 
-    let startTokens = await tokens.TokenFactory.allTokens();
+    let allTokens = await tokens.TokenFactory.allTokens();
 
     let ethToken = tokens.TokenFactory.getEthToken();
 
-    let ethRates = [];
+    let fetchExchangeRate = (src, dst) => {
+        return kbs.getExchangeRate(src, dst, exc.calcSrcAmount(src)).then( (exchRate) => {
+            console.log(`FETCHED rate for ${src.symbol} to ${dst.symbol} - ${exchRate}`);
 
-    for (let token of startTokens) {
-        if (token === ethToken) {
-            continue;
-        }
+            mdl.updateRate(src, dst, exchRate);
 
-        ethRates.push(kbs.getExchangeRate(ethToken, token, constants.START_VALUE_ETH).then( (exchRate) => {
-            console.log(`Fetching rate for ETH to ${token.symbol} - ${exchRate}`);
-
-            mdl.updateRate(ethToken, token, exchRate);
-        }));
-    }
-
-    await Promise.all(ethRates);
-
-    for (let t1 of startTokens) {
-        if (t1 === ethToken) {
-            continue;
-        }
-
-        let tokenRates = [];
-        
-        for (let t2 of startTokens) {
-            if (t1 === t2) {
-                continue;
+            if (dst === ethToken) {
+                src.ethRate = exchRate;
             }
 
-            tokenRates.push(kbs.getExchangeRate(t1, t2, exc.calcSrcAmount(t1)).then( (exchRate) => {
-                console.log(`Fetching rate for ${t1.symbol} to ${t2.symbol} - ${exchRate}`);
+            return exchRate;
+        });
+    }
 
-                mdl.updateRate(t1, t2, exchRate);
+    let updateTokenRates = async (token) => {
+        let tokenRates = [];
 
-                if (t2 === ethToken) {
-                    t1.ethRate = exchRate;
-                }
-            }));
+        await fetchExchangeRate(ethToken, token);
+        
+        for (let dst of allTokens) {
+            tokenRates.push(fetchExchangeRate(token, dst));
         }
 
         await Promise.all(tokenRates);
+    };
+
+    let tokenQueue = [...allTokens];
+
+    for (let token of tokenQueue) {
+        await updateTokenRates(token);
     }
 
-    let shouldExec = true;
+    let prioritizeToken = (token) => {
+        console.log(`PRIORITY TOKEN ${token.symbol}`);
 
-    let onRateUpdate = async (src, dst) => {
+        let index = tokenQueue.indexOf(token);
+        tokenQueue.splice(index, 1);
+        tokenQueue.unshift(token);
+    };
+
+    let onUpdate = async (src, dst) => {
         let srcToken = tokens.TokenFactory.getTokenByAddress(src);
         let dstToken = tokens.TokenFactory.getTokenByAddress(dst);
 
-        if ((srcToken === undefined) || (dstToken === undefined)) {
-            return;
+        if (srcToken !== undefined) {
+            prioritizeToken(srcToken);
         }
 
-        let updateRate = async (s, d) => {
-            let srcAmount = exc.calcSrcAmount(s);
-
-            let exchRate = await kbs.getExchangeRate(s, d, srcAmount);
-
-            console.log(`RATE UPDATE: ${s.symbol} ${d.symbol} ${exchRate / (10**18)}`);
-
-            mdl.updateRate(s, d, exchRate);
-
-            shouldExec = true;
-
-            if (d === ethToken) {
-                s.ethRate = exchRate;
-            }
+        if (dstToken !== undefined) {
+            prioritizeToken(dstToken);
         }
+    };
 
-        await Promise.all([
-            updateRate(srcToken, dstToken),
-            updateRate(dstToken, srcToken),
-        ]);
-    }
+    kbs.listen(onUpdate);
 
-    kbs.listen(onRateUpdate);
-
-    let i = 0;
     while (true) {
-        if (shouldExec) {
-            console.log(`EXECUTION LOOP ${i++}`);
+        var token = tokenQueue[0];
 
-            for (let t of startTokens) {
-                await exc.tryExecute(t);
+        await updateTokenRates(token);
+
+        tokenQueue.splice(0, 1);
+        tokenQueue.push(token);
+
+        let routes = [];
+
+        for (let execToken of allTokens) {
+            let route = await exc.tryExecute(execToken);
+
+            if (route.length > 0) {
+                routes.push(route);
             }
-
-            shouldExec = false;
         }
+
+        debugger;
+
+        server.sendMessage({
+            rates: mdl.serialize(),
+            routes: routes.map((r) => {
+                let src = r[0].src;
+
+                let srcProfit = r[r.length - 1].dstAmount.sub(r[0].srcAmount);
+                let ethProfit = mdl.calcDstAmount(r[0].src, ethToken, src.ethRate, srcProfit);
+                let usdProfit = ethToken.formatAmount(ethProfit) * ethToken.price;
+
+                return {
+                    srcProfit: src.formatAmount(srcProfit),
+                    ethProfit: ethToken.formatAmount(ethProfit),
+                    usdProfit: usdProfit.toFixed(2),
+                    trades: r.map((t) => {
+                        return {
+                            src: t.src.symbol,
+                            dst: t.dst.symbol,
+                            srcAmount: t.src.formatAmount(t.srcAmount),
+                            dstAmount: t.dst.formatAmount(t.dstAmount),
+                            exchRate: (t.exchRate / (10**18)).toFixed(constants.DISPLAY_DECIMALS),
+                        }
+                    })
+                };
+            })
+        });
 
         await sleep(constants.EXECUTE_INTERVAL);
     }

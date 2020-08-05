@@ -3,8 +3,6 @@ const { ethers } = require('@nomiclabs/buidler');
 const constants = require('./constants.js');
 const tokens = require('./tokens.js');
 
-
-
 function Executor(strategy, model) {
     this.strategy = strategy;
     this.model = model;
@@ -70,7 +68,7 @@ function Executor(strategy, model) {
 
         if (bestRoute.length == 0) {
             console.log(constants.CONSOLE_RED, `EXECUTE FAIL: No available trade ${src.symbol}`);
-            return;
+            return [];
         }
 
         printRoute(bestRoute);
@@ -80,7 +78,7 @@ function Executor(strategy, model) {
 
         if (srcBalance.lte(srcAmount)) {
             console.log(constants.CONSOLE_RED, `EXECUTE FAIL: Insufficient funds to trade ${src.symbol} (${srcBalance} < ${srcAmount})`);
-            return;
+            return bestRoute;
         }
 
         // Make sure the reout profit exceeds the gas cost
@@ -90,7 +88,7 @@ function Executor(strategy, model) {
 
         if (profit.lte(0)) {
             console.log(constants.CONSOLE_RED, `EXECUTE ERROR: Profit does not cover gas (${profit.toString()} < ${gasCost.toString()})`);
-            return;
+            return bestRoute;
         }
 
         // Do the trade
@@ -109,6 +107,8 @@ function Executor(strategy, model) {
             });
 
         console.log(constants.CONSOLE_GREEN, `EXECUTE SUCCESS`);
+
+        return bestRoute;
     }
 }
 
