@@ -174,14 +174,13 @@ function TokenFactory() {
         // return px;
     }
 
-    // this.getTokenBySymbol = (symbol) => {
-    //     debugger;
-    //     for (const [address, token] of Object.entries(this.tokens)) {
-    //         if (token.symbol == symbol) {
-    //             return token;
-    //         }
-    //     }
-    // }
+    this.getTokenBySymbol = (symbol) => {
+        for (const [address, token] of Object.entries(this.tokens)) {
+            if (token.symbol == symbol) {
+                return token;
+            }
+        }
+    }
 
     this.getEthToken = () => {
         return this.tokens[constants.ETH_ADDRESS];

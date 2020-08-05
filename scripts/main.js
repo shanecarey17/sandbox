@@ -3,11 +3,13 @@ const legos = require('@studydefi/money-legos').legos;
 
 const tokens = require('./tokens.js');
 const model = require('./model.js');
-const kyber = require('./kyber.js');
 const strategy = require('./strategy.js');
 const exec = require('./exec.js');
 const constants = require('./constants.js');
 const server = require('./server.js');
+
+const kyber = require('./kyber.js');
+const uniswapv2 = require('./uniswapv2.js');
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -33,115 +35,123 @@ const run = async () => {
 
     let exc = new exec.Executor(str, mdl);
 
-    let kbs = await kyber.load();
-
     let allTokens = await tokens.TokenFactory.allTokens();
 
     let ethToken = tokens.TokenFactory.getEthToken();
 
-    let fetchExchangeRate = (src, dst) => {
-        return kbs.getExchangeRate(src, dst, exc.calcSrcAmount(src)).then( (exchRate) => {
-            console.log(`FETCHED rate for ${src.symbol} to ${dst.symbol} - ${exchRate}`);
+    // Kyber
 
-            mdl.updateRate(src, dst, exchRate);
+    // let kyberSwap = await kyber.load();
 
-            if (dst === ethToken) {
-                src.ethRate = exchRate;
-            }
+    // let fetchExchangeRate = (src, dst) => {
+    //     return kyberSwap.getExchangeRate(src, dst, exc.calcSrcAmount(src)).then( (exchRate) => {
+    //         console.log(`FETCHED rate for ${src.symbol} to ${dst.symbol} - ${exchRate}`);
 
-            return exchRate;
-        });
-    }
+    //         mdl.updateRate(src, dst, exchRate);
 
-    let updateTokenRates = async (token) => {
-        let tokenRates = [];
+    //         if (dst === ethToken) {
+    //             src.ethRate = exchRate;
+    //         }
 
-        await fetchExchangeRate(ethToken, token);
+    //         return exchRate;
+    //     });
+    // }
+
+    // let updateTokenRates = async (token) => {
+    //     let tokenRates = [];
+
+    //     await fetchExchangeRate(ethToken, token);
         
-        for (let dst of allTokens) {
-            tokenRates.push(fetchExchangeRate(token, dst));
-        }
+    //     for (let dst of allTokens) {
+    //         tokenRates.push(fetchExchangeRate(token, dst));
+    //     }
 
-        await Promise.all(tokenRates);
-    };
+    //     await Promise.all(tokenRates);
+    // };
 
-    let tokenQueue = [...allTokens];
+    // let tokenQueue = [...allTokens];
 
-    for (let token of tokenQueue) {
-        await updateTokenRates(token);
-    }
+    // for (let token of tokenQueue) {
+    //     await updateTokenRates(token);
+    // }
 
-    let prioritizeToken = (token) => {
-        console.log(`PRIORITY TOKEN ${token.symbol}`);
+    // let prioritizeToken = (token) => {
+    //     console.log(`PRIORITY TOKEN ${token.symbol}`);
 
-        let index = tokenQueue.indexOf(token);
-        tokenQueue.splice(index, 1);
-        tokenQueue.unshift(token);
-    };
+    //     let index = tokenQueue.indexOf(token);
+    //     tokenQueue.splice(index, 1);
+    //     tokenQueue.unshift(token);
+    // };
 
-    let onUpdate = async (src, dst) => {
-        let srcToken = tokens.TokenFactory.getTokenByAddress(src);
-        let dstToken = tokens.TokenFactory.getTokenByAddress(dst);
+    // let onKyberUpdate = async (src, dst) => {
+    //     let srcToken = tokens.TokenFactory.getTokenByAddress(src);
+    //     let dstToken = tokens.TokenFactory.getTokenByAddress(dst);
 
-        if (srcToken !== undefined) {
-            prioritizeToken(srcToken);
-        }
+    //     if (srcToken !== undefined) {
+    //         prioritizeToken(srcToken);
+    //     }
 
-        if (dstToken !== undefined) {
-            prioritizeToken(dstToken);
-        }
-    };
+    //     if (dstToken !== undefined) {
+    //         prioritizeToken(dstToken);
+    //     }
+    // };
 
-    kbs.listen(onUpdate);
+    // kyberSwap.listen(onKyberUpdate);
 
-    while (true) {
-        var token = tokenQueue[0];
+    // Uniswap
 
-        await updateTokenRates(token);
+    let uniswap = await uniswapv2.load(allTokens);
 
-        tokenQueue.splice(0, 1);
-        tokenQueue.push(token);
+    uniswap.listen(console.log);
 
-        let routes = [];
+    // Main loop
 
-        for (let execToken of allTokens) {
-            let route = await exc.tryExecute(execToken);
+    // while (true) {
+    //     var token = tokenQueue[0];
 
-            if (route.length > 0) {
-                routes.push(route);
-            }
-        }
+    //     await updateTokenRates(token);
 
-        debugger;
+    //     tokenQueue.splice(0, 1);
+    //     tokenQueue.push(token);
 
-        server.sendMessage({
-            rates: mdl.serialize(),
-            routes: routes.map((r) => {
-                let src = r[0].src;
+    //     let routes = [];
 
-                let srcProfit = r[r.length - 1].dstAmount.sub(r[0].srcAmount);
-                let ethProfit = mdl.calcDstAmount(r[0].src, ethToken, src.ethRate, srcProfit);
-                let usdProfit = ethToken.formatAmount(ethProfit) * ethToken.price;
+    //     for (let execToken of allTokens) {
+    //         let route = await exc.tryExecute(execToken);
 
-                return {
-                    srcProfit: src.formatAmount(srcProfit),
-                    ethProfit: ethToken.formatAmount(ethProfit),
-                    usdProfit: usdProfit.toFixed(2),
-                    trades: r.map((t) => {
-                        return {
-                            src: t.src.symbol,
-                            dst: t.dst.symbol,
-                            srcAmount: t.src.formatAmount(t.srcAmount),
-                            dstAmount: t.dst.formatAmount(t.dstAmount),
-                            exchRate: (t.exchRate / (10**18)).toFixed(constants.DISPLAY_DECIMALS),
-                        }
-                    })
-                };
-            })
-        });
+    //         if (route.length > 0) {
+    //             routes.push(route);
+    //         }
+    //     }
 
-        await sleep(constants.EXECUTE_INTERVAL);
-    }
+    //     server.sendMessage({
+    //         rates: mdl.serialize(),
+    //         routes: routes.map((r) => {
+    //             let src = r[0].src;
+
+    //             let srcProfit = r[r.length - 1].dstAmount.sub(r[0].srcAmount);
+    //             let ethProfit = mdl.calcDstAmount(r[0].src, ethToken, src.ethRate, srcProfit);
+    //             let usdProfit = ethToken.formatAmount(ethProfit) * ethToken.price;
+
+    //             return {
+    //                 srcProfit: src.formatAmount(srcProfit),
+    //                 ethProfit: ethToken.formatAmount(ethProfit),
+    //                 usdProfit: usdProfit.toFixed(2),
+    //                 trades: r.map((t) => {
+    //                     return {
+    //                         src: t.src.symbol,
+    //                         dst: t.dst.symbol,
+    //                         srcAmount: t.src.formatAmount(t.srcAmount),
+    //                         dstAmount: t.dst.formatAmount(t.dstAmount),
+    //                         exchRate: (t.exchRate / (10**18)).toFixed(constants.DISPLAY_DECIMALS),
+    //                     }
+    //                 })
+    //             };
+    //         })
+    //     });
+
+    //     await sleep(constants.EXECUTE_INTERVAL);
+    // }
 }
 
 function main() {
