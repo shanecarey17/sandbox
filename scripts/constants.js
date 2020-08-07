@@ -11,9 +11,12 @@ module.exports = {
     CONSOLE_RED: '\x1b[31m%s\x1b[0m',
     CONSOLE_GREEN: '\x1b[32m%s\x1b[0m',
 
-    PATH_LENGTH: 2,
+    PATH_LENGTH: 3,
 
     START_VALUE_ETH: ethers.utils.parseEther('1.5'),
+    START_VALUE_USD: 100,
+    FALLBACK_COIN_AMT: 50,
+    USE_USD_REFERENCE_PX: true,
 
     KYBER_PRECISION: 18,
 
@@ -25,7 +28,7 @@ module.exports = {
     GAS_PRICE: ethers.utils.parseUnits('58', 'gwei'),
     GAS_ESTIMATE: 1387218,
 
-    TOKENS_FILENAME: './tokens_min.txt',
+    TOKENS_FILENAME: './tokens.csv',
 
     EXECUTE_INTERVAL: 5000, // ms
 

@@ -58,6 +58,8 @@ function TokenFactory() {
         for (let coin of data) {
             let price = coin.quote.USD.price;
             this.prices[coin.symbol] = price;
+
+            console.log(`PRICE ${coin.symbol} ${price}`);
         }
     }
 
@@ -93,8 +95,10 @@ function TokenFactory() {
 
         var price = 0;
 
-        if (symbol in this.prices) {
-            price = this.prices[symbol];
+        let priceSymbol = symbol == 'WETH' ? 'ETH' : symbol == 'WBTC' ? 'BTC' : symbol;
+
+        if (priceSymbol in this.prices) {
+            price = this.prices[priceSymbol];
         }
 
         var token = new Token(contract, symbol, decimals, price);
@@ -116,11 +120,7 @@ function TokenFactory() {
         let tasks = [];
 
         for await (const line of rl) {
-            if (line.length == 0) {
-                continue;
-            }
-            
-            if (line.startsWith('#')) {
+            if (line.length == 0 || line.startsWith('#')) {
                 continue;
             }
 
@@ -139,7 +139,7 @@ function TokenFactory() {
             tasks.push((async (address) => {
                 let token = await loadToken(address);
 
-                console.log(`Loaded token from config ${token.symbol} ${token.contract.address}`);
+                console.log(`LOADED TOKEN CONFIG ${token.symbol} ${token.contract.address} ${token.decimals}`);
             })(address));
         }
 

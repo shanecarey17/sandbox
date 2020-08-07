@@ -59,11 +59,11 @@ function Strategy(contract, balance, marginContract) {
     }
 
     this.executeTrade = async function(route) {
-        assert(route.length == 3, 'only 3 hops supported');
+        // assert(route.length == 3, 'only 3 hops supported');
 
-        assert(route[0].dst == route[1].src, "invalid hop");
-        assert(route[1].dst == route[2].src, "invalid hop");
-        assert(route[2].dst == route[0].src, "invalid hop");
+        // assert(route[0].dst == route[1].src, "invalid hop");
+        // assert(route[1].dst == route[2].src, "invalid hop");
+        // assert(route[2].dst == route[0].src, "invalid hop");
 
         console.log('MOCKING EXECUTION');
 

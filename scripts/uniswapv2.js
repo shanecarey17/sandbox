@@ -1,6 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const readline = require('readline');
+const debug = require('debug')('uniswap');
 
 const ethers = require("@nomiclabs/buidler").ethers;
 
@@ -8,18 +9,18 @@ const constants = require('./constants.js');
 const tokens = require('./tokens.js');
 const wallet = require('./wallet.js');
 
-const getKey = (t1, t2) => {
-    // Uniswap paira are unique by sort order
-    let arr = [t1, t2];
-    arr.sort((a, b) => {
-        return t1.address > t2 ? 0 : 1;
+const sortTokens = (t1, t2) => {
+    return [t1, t2].sort((a, b) => {
+        return a.contract.address < b.contract.address ? -1 : 1;
     });
-    return arr;
 }
 
-const setPair = async (uniswapPairs, t1, t2, addressOrFactory) => {
-    debugger;
-    
+const getKey = (t1, t2) => {
+    // Uniswap pairs are unique by sort order
+    return sortTokens(t1, t2).map((t) => t.contract.address).join('-');
+}
+
+const setPair = async (uniswapPairs, t1, t2, addressOrFactory) => {    
     let key = getKey(t1, t2);
 
     if (uniswapPairs.has(key)) {
@@ -39,12 +40,17 @@ const setPair = async (uniswapPairs, t1, t2, addressOrFactory) => {
 
     let uniswapPair = await ethers.getContractAt('IUniswapV2Pair', pairAddress, wallet);
 
-    uniswapPair._token0 = key[0];
-    uniswapPair._token1 = key[1];
+    let ordered = sortTokens(t1, t2);
+
+    uniswapPair._token0 = ordered[0];
+    uniswapPair._token1 = ordered[1];
+
+    let [reserve0, reserve1, block] = await uniswapPair.getReserves();
+
+    uniswapPair._reserve0 = reserve0;
+    uniswapPair._reserve1 = reserve1;
 
     uniswapPairs.set(key, uniswapPair);
-
-    console.log(`ADDING UNISWAP PAIR ${t1.symbol} ${t2.symbol}`);
 }
 
 const loadPairsFromFile = async (uniswapFactory) => {
@@ -54,6 +60,8 @@ const loadPairsFromFile = async (uniswapFactory) => {
         input: fs.createReadStream(constants.UNISWAP_PAIRS_FILENAME),
         crlfDelay: Infinity
     });
+
+    let tasks = [];
 
     for await (const line of rl) {
         if (line.length == 0) {
@@ -78,10 +86,12 @@ const loadPairsFromFile = async (uniswapFactory) => {
             continue;
         }
 
-        await setPair(uniswapPairs, token0, token1, address);
+        tasks.push(setPair(uniswapPairs, token0, token1, address));
 
         console.log(`LOADED UNISWAP PAIR ${token0.symbol} ${token1.symbol}`);
     }
+
+    await Promise.all(tasks);
 
     return uniswapPairs;
 }
@@ -90,10 +100,8 @@ const writeFile = (uniswapPairs) => {
     let text = "";
 
     for (const [key, contract] of uniswapPairs.entries()) {
-        text += `${key[0].symbol},${key[1].symbol},${contract.address}\n`;
+        text += `${contract._token0.symbol},${contract._token1.symbol},${contract.address}\n`;
     }
-
-    debugger;
 
     fs.writeFileSync(constants.UNISWAP_PAIRS_FILENAME, text);
 }
@@ -102,37 +110,62 @@ function UniswapV2(factoryContract, pairContracts) {
     this.factoryContract = factoryContract;
     this.pairContracts = pairContracts;
 
-    this.getExchangeRate = async (src, dst, srcAmount) => {
-        let pairContract = this.exchangeContracts.get(getKey(src, dst));
+    this.getExchangeRate = (src, dst, srcAmount) => {
+        let key = getKey(src, dst);
 
-        assert(pairContract !== undefined);
+        if (!this.pairContracts.has(key)) {
+            // debug(`No pair for ${src.symbol} ${dst.symbol}`);
+            return constants.ZERO;
+        }
 
-        let srcPx = await pairContract.cumulativePrice0Last();
-        let dstPx = await pairContract.cumulativePrice1last();
+        let pairContract = this.pairContracts.get(key);
 
-        return;
+        if (pairContract._reserve0 == 0 || pairContract._reserve1 == 0) {
+            // debug(`Empty reserve ${sc.symbol} ${dst.symbol}`);
+            return constants.ZERO;
+        }
+
+        let srcIdx = src == pairContract._token0 ? 0 : 1;
+
+        let srcBalance = srcIdx == 0 ? pairContract._reserve0 : pairContract._reserve1;
+
+        if (srcAmount.mul(13).gte(srcBalance.mul(10))) {
+            debug(`${src.symbol} ${dst.symbol} src amount exceeds balance ${src.formatAmount(srcAmount)} * 1.3 >= ${src.formatAmount(srcBalance)}}`);
+            return constants.ZERO; // Requiring trade size <= half to ensure rate is accurate, no math to prove it
+        }
+
+        // Math is done * 10^2 (to apply fee?)
+        let srcAmountAfterFee = srcAmount.mul(1000).sub(srcAmount.mul(3));
+
+        let preBalanceSrc = srcBalance.mul(1000);
+        let preBalanceDst = (srcIdx == 1 ? pairContract._reserve0 : pairContract._reserve1).mul(1000);
+
+        let postBalanceSrc = preBalanceSrc.add(srcAmountAfterFee);
+
+        // b0 * b1 >= r0 * r1 
+
+        let minPostBalanceDst = preBalanceSrc.mul(preBalanceDst).div(postBalanceSrc);
+
+        let allowedOutDst = preBalanceDst.sub(minPostBalanceDst);
+
+        allowedOutDst = allowedOutDst.div(1000);
+
+        return allowedOutDst;
+    }
+
+    this.calcDstAmount = (src, dst, srcAmount) => {
+        return this.getExchangeRate(src, dst, srcAmount);
     }
 
     this.listen = (callback) => {
         for (let [key, contract] of this.pairContracts.entries()) {
-            contract.on('Swap', async (sender, amount0In, amount1In, amount0Out, amount1Out, to) => {
-                console.log('UNISWAPV2 EVENT');
-                
-                let srcToken = amount0In > amount1In ? contract._token0 : contract._token1;
-                let dstToken = amount0In > amount1In ? contract._token1 : contract._token0;
-
-                // TODO calculate rate
-
-                console.log(`Uniswap SWAP ${srcToken.symbol} <=> ${dstToken.symbol}`);
-
-                //callback(srcToken, dstToken);
-            });
-
             contract.on('Sync', async (reserve0, reserve1) => {
                 contract._reserve0 = reserve0;
                 contract._reserve1 = reserve1;
 
                 console.log(`UNISWAPV2 SYNC ${contract._token0.symbol} ${contract._token1.symbol} ${reserve0} ${reserve1}`);
+
+                callback(contract._token0, contract._token1);
             });
         }
     }

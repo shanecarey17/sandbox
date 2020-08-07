@@ -11,6 +11,16 @@ function KyberSwap(proxyContract, networkContract) {
     this.proxyContract = proxyContract;
     this.networkContract = networkContract;
 
+    // this.calcDstAmount = (src, dst, exchRate, srcAmount) => {
+    //     // https://github.com/KyberNetwork/smart-contracts/blob/master/contracts/Utils.sol
+    //     // Returns dst amount
+    //     if (dst.decimals.gte(src.decimals)) {
+    //         return srcAmount.mul(exchRate).mul(constants.TEN.pow(dst.decimals - src.decimals)).div(constants.TEN.pow(constants.KYBER_PRECISION));
+    //     } else {
+    //         return srcAmount.mul(exchRate).div(constants.TEN.pow(src.decimals - dst.decimals + constants.KYBER_PRECISION));
+    //     }
+    // }
+
     this.getExchangeRate = async (src, dst, srcAmount) => {
         if (src === dst) {
             return constants.ZERO;

@@ -102,56 +102,64 @@ const run = async () => {
 
     let uniswap = await uniswapv2.load(allTokens);
 
-    uniswap.listen(console.log);
+    uniswap.listen(async (token0, token1) => {
+        console.log('UNISWAP UPDATE');
+    });
 
     // Main loop
 
-    // while (true) {
-    //     var token = tokenQueue[0];
+    while (true) {
+        // var token = tokenQueue[0];
 
-    //     await updateTokenRates(token);
+        // await updateTokenRates(token);
 
-    //     tokenQueue.splice(0, 1);
-    //     tokenQueue.push(token);
+        // tokenQueue.splice(0, 1);
+        // tokenQueue.push(token);
 
-    //     let routes = [];
+        for (let t1 of allTokens) {
+            for (let t2 of allTokens) {
+                mdl.updateRate(t1, t2, uniswap);
+            }
+        }
 
-    //     for (let execToken of allTokens) {
-    //         let route = await exc.tryExecute(execToken);
+        let routes = [];
 
-    //         if (route.length > 0) {
-    //             routes.push(route);
-    //         }
-    //     }
+        for (let execToken of allTokens) {
+            let route = await exc.tryExecute(execToken);
 
-    //     server.sendMessage({
-    //         rates: mdl.serialize(),
-    //         routes: routes.map((r) => {
-    //             let src = r[0].src;
+            if (route.length > 0) {
+                routes.push(route);
+            }
+        }
 
-    //             let srcProfit = r[r.length - 1].dstAmount.sub(r[0].srcAmount);
-    //             let ethProfit = mdl.calcDstAmount(r[0].src, ethToken, src.ethRate, srcProfit);
-    //             let usdProfit = ethToken.formatAmount(ethProfit) * ethToken.price;
+        server.sendMessage({
+            rates: mdl.serialize(),
+            routes: routes.map((r) => {
+                let src = r[0].src;
 
-    //             return {
-    //                 srcProfit: src.formatAmount(srcProfit),
-    //                 ethProfit: ethToken.formatAmount(ethProfit),
-    //                 usdProfit: usdProfit.toFixed(2),
-    //                 trades: r.map((t) => {
-    //                     return {
-    //                         src: t.src.symbol,
-    //                         dst: t.dst.symbol,
-    //                         srcAmount: t.src.formatAmount(t.srcAmount),
-    //                         dstAmount: t.dst.formatAmount(t.dstAmount),
-    //                         exchRate: (t.exchRate / (10**18)).toFixed(constants.DISPLAY_DECIMALS),
-    //                     }
-    //                 })
-    //             };
-    //         })
-    //     });
+                let srcProfit = r[r.length - 1].dstAmount.sub(r[0].srcAmount);
+                let ethProfit = 0; // mdl.calcDstAmount(r[0].src, ethToken, src.ethRate, srcProfit);
+                let usdProfit = src.formatAmount(srcProfit * src.price); // ethToken.formatAmount(ethProfit) * ethToken.price;
 
-    //     await sleep(constants.EXECUTE_INTERVAL);
-    // }
+                return {
+                    srcProfit: src.formatAmount(srcProfit),
+                    ethProfit: ethToken.formatAmount(ethProfit),
+                    usdProfit: Number(usdProfit).toFixed(2),
+                    trades: r.map((t) => {
+                        return {
+                            src: t.src.symbol,
+                            dst: t.dst.symbol,
+                            srcAmount: t.src.formatAmount(t.srcAmount),
+                            dstAmount: t.dst.formatAmount(t.dstAmount),
+                            exchRate: (t.exchRate / (10**18)).toFixed(constants.DISPLAY_DECIMALS),
+                        }
+                    })
+                };
+            })
+        });
+
+        await sleep(constants.EXECUTE_INTERVAL);
+    }
 }
 
 function main() {

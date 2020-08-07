@@ -20,6 +20,7 @@
     "axios": "^0.19.2",
     "buidler": "^0.2.8",
     "buidler-deploy": "^0.5.5",
+    "debug": "^4.1.1",
     "ganache-cli": "^6.9.1",
     "log4js": "^6.3.0",
     "ndb": "^1.1.5",

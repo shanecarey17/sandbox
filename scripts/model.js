@@ -1,43 +1,57 @@
 const ethers = require("@nomiclabs/buidler").ethers;
 const assert = require('assert');
+const debug = require('debug')('model');
 
 const constants = require('./constants');
 const tokens = require('./tokens.js');
 
 function Model() {
-    //this.exchanges = [];
     this.graph = new Map();
 
-    // this.addExchange = (exchange) => {
-    //     if (this.exchanges.indexOf(exchange) >= 0) {
-    //         return;
-    //     }
-
-    //     //this.exchanges.push(exchange);
-    // }
-
-    this.updateRate = (src, dst, exchRate) => {
-        // if (exchRate == 0) {
-        //     return;
-        // }
-
+    this.updateRate = (src, dst, exchange) => {
         if (!this.graph.has(src)) {
             this.graph.set(src, new Map());
         }
 
-        this.graph.get(src).set(dst, exchRate);
-
-        //this.addExchange(exchange); // TODO track with rate when multiple
+        this.graph.get(src).set(dst, exchange);
     };
 
-    this.calcDstAmount = (src, dst, exchRate, srcAmount) => {
-        // https://github.com/KyberNetwork/smart-contracts/blob/master/contracts/Utils.sol
-        // Returns dst amount
-        if (dst.decimals.gte(src.decimals)) {
-            return srcAmount.mul(exchRate).mul(constants.TEN.pow(dst.decimals - src.decimals)).div(constants.TEN.pow(constants.KYBER_PRECISION));
-        } else {
-            return srcAmount.mul(exchRate).div(constants.TEN.pow(src.decimals - dst.decimals + constants.KYBER_PRECISION));
+    this.calcExchangeRate = (src, dst, srcAmount, dstAmount) => {
+        if (srcAmount == 0) {
+            return constants.ZERO;
         }
+
+        if (dst.decimals.gte(src.decimals)) {
+            return dstAmount.mul(constants.TEN.pow(constants.KYBER_PRECISION)).div(srcAmount).div(constants.TEN.pow(dst.decimals - src.decimals));
+        } else {
+            return dstAmount.mul((constants.TEN.pow(src.decimals - dst.decimals + constants.KYBER_PRECISION))).div(srcAmount);
+        }
+    }
+
+    // this.calcDstAmount = (src, dst, exchRate, srcAmount) => {
+    //     // https://github.com/KyberNetwork/smart-contracts/blob/master/contracts/Utils.sol
+    //     // Returns dst amount
+    //     if (dst.decimals.gte(src.decimals)) {
+    //         return srcAmount.mul(exchRate).mul(constants.TEN.pow(dst.decimals - src.decimals)).div(constants.TEN.pow(constants.KYBER_PRECISION));
+    //     } else {
+    //         return srcAmount.mul(exchRate).div(constants.TEN.pow(src.decimals - dst.decimals + constants.KYBER_PRECISION));
+    //     }
+    // }
+
+    let calcReferencePx = (src, srcAmount) => {
+        if (constants.USE_USD_REFERENCE_PX) {
+            // Use a 2 decimal fake ref px for usd
+            // important to return BigNumber here
+            return ethers.BigNumber.from(String(BigInt(Math.ceil(Number(src.formatAmount(srcAmount)) * src.price * 10**2))));
+        }
+
+        // let eth = tokens.TokenFactory.getEthToken();
+
+        // if (src === eth) {
+        //     return srcAmount;
+        // }
+
+        // return this.calcDstAmount(src, eth, src0.ethRate, srcAmount); // TODO FIX after exchange
     }
 
     let getBestRouteInternal = (src0, src, srcAmount, n, route) => {
@@ -45,45 +59,46 @@ function Model() {
             return [];
         }
 
-        if (n <= 0) {
-            if (!this.graph.get(src).has(src0)) {
-                return [];
-            }
-
-            var exchRate = this.graph.get(src).get(src0);
-
-            var src0Amount = this.calcDstAmount(src, src0, exchRate, srcAmount);
-
-            return [...route, {
-                src: src,
-                srcAmount: srcAmount,
-                dst: src0,
-                dstAmount: src0Amount,
-                exchRate: exchRate,
-            }];
-        }
-
         var bestRoute = [];
-        var bestReturn = src == src0 ? srcAmount : route[0].srcAmount; // Must exceed starting amount
+        var bestReturn = constants.ZERO;
 
-        var bestReturnEth = bestReturn;
-        if (src0.symbol != 'ETH') {
-            bestReturnEth = this.calcDstAmount(src0, tokens.TokenFactory.getEthToken(), src0.ethRate, bestReturn);
-        }
-
-        for (const [dst, exchRate] of this.graph.get(src)) {
+        for (const [dst, exchange] of this.graph.get(src)) {
             if (dst === src) {
                 continue;
             }
 
-            var dstAmount = this.calcDstAmount(src, dst, exchRate, srcAmount);
+            var dstAmount = exchange.calcDstAmount(src, dst, srcAmount);
 
+            if (dstAmount == 0) {
+                // debug(`No trade from ${src.symbol} ${dst.symbol}`);
+
+                continue;
+            }
+
+            debug(`Model trade ${src.formatAmount(srcAmount)} ${src.symbol} => ${dst.formatAmount(dstAmount)} ${dst.symbol}`);
+
+            // Handle base case, back to src0
+            if (n == 0) {
+                if (dst !== src0) {
+                    continue;
+                }
+
+                return [...route, {
+                    src: src,
+                    srcAmount: srcAmount,
+                    dst: dst,
+                    dstAmount: dstAmount,
+                    exchRate: this.calcExchangeRate(src, dst, srcAmount, dstAmount),
+                }];
+            }
+
+            // Otherwise recurse
             var dstRoute = getBestRouteInternal(src0, dst, dstAmount, n - 1, [...route, {
                 src: src,
                 srcAmount: srcAmount,
                 dst: dst,
                 dstAmount: dstAmount,
-                exchRate: exchRate,
+                exchRate: this.calcExchangeRate(src, dst, srcAmount, dstAmount),
             }]);
 
             if (dstRoute.length == 0) {
@@ -92,13 +107,13 @@ function Model() {
 
             assert(dstRoute[dstRoute.length -1].dst == src0);
 
-            var src0Return = dstRoute[dstRoute.length - 1].dstAmount;
-            var src0ReturnEth = this.calcDstAmount(src0, tokens.TokenFactory.getEthToken(), src0.ethRate, src0Return);
+            var routeReturn = calcReferencePx(src0, dstRoute[dstRoute.length - 1].dstAmount);
 
-            if (src0ReturnEth.gte(bestReturnEth)) {
+            if (routeReturn.gte(bestReturn)) {
+                debug(`Model updated best return ${src0.symbol} ${src0.formatAmount(routeReturn)}`);
+
                 bestRoute = dstRoute; 
-                bestReturn = src0Return;
-                bestReturnEth = src0ReturnEth;
+                bestReturn = routeReturn;
             }
         }
 
@@ -106,22 +121,26 @@ function Model() {
     };
 
     this.getBestRoute = (src, srcAmount) => {
-        var bestRoute = getBestRouteInternal(src, src, srcAmount, constants.PATH_LENGTH, []);
+        var bestRoute = getBestRouteInternal(src, src, srcAmount, constants.PATH_LENGTH - 1, []);
 
         if (bestRoute.length > 0) {
             assert(bestRoute[0].src == bestRoute[bestRoute.length - 1].dst);
-
-            // Hack?
-            bestRoute.expectedProfit = bestRoute[bestRoute.length - 1].dstAmount.sub(bestRoute[0].srcAmount);
         }
 
         return bestRoute;
     }
 
     this.getBestRate = (src, dst, srcAmount) => {
-        assert(this.graph.has(src));
+        if (!this.graph.has(src)) {
+            return constants.ZERO;
+        }
+
         let srcNode = this.graph.get(src);
-        assert(srcNode.has(dst));
+
+        if (!srcNode.has(dst)) {
+            return constants.ZERO;
+        }
+
         return srcNode.get(dst);
     }
 
