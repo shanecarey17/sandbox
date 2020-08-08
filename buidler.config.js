@@ -7,8 +7,8 @@ const fs = require('fs');
 const MNEMONIC = fs.readFileSync('.secret').toString().trim();
 
 //const INFURA_URL = 'https://mainnet.infura.io/v3/e4aa52bf76a948ea92ae7772d299aef0'; // Chris
-//const INFURA_URL = 'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d'; // Shane
-const INFURA_URL = 'https://mainnet.infura.io/v3/b5f949ae5053431b961f7497d468f37b'; // shane.carey@me.com
+const INFURA_URL = 'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d'; // Shane
+//const INFURA_URL = 'https://mainnet.infura.io/v3/b5f949ae5053431b961f7497d468f37b'; // shane.carey@me.com
 
 const MAINNET_KEY = fs.readFileSync('.mainnet.key').toString().trim();
 
