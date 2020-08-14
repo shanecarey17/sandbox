@@ -51,19 +51,24 @@ const getLiquidationRatio = (account, markets) => {
 };
 
 const doLiquidation = (accounts, markets) => {
-    let accountsSorted = Object.values(accounts).sort((a, b) => {
-        getLiquidationRatio(a, markets) < getLiquidationRatio(b, markets) ? -1 : 1;
+    let accountsSorted = Object.values(accounts).map((a) => {
+        return {
+            account: a,
+            liquidationRatio: getLiquidationRatio(a, markets),
+        };
+    }).sort((a, b) => {
+        return a.liquidationRatio - b.liquidationRatio; // RSort by liq. ratio
     });
 
     let ethToken = tokens.TokenFactory.getEthToken();
 
-    let count = 10;
-    for (let i = 0; i < count; i++) {
-        let account = accountsSorted[i];
+    for (let {account, liquidationRatio} of accountsSorted) {
+        if (liquidationRatio >= 1) {
+            // Account is collateralized
+            return;
+        }
 
-        let liquidationRatio = getLiquidationRatio(account, markets);
-
-        console.log(`LIQUIDATION CANDIDATE ${account.address} RATIO ${liquidationRatio}}`);
+        console.log(constants.CONSOLE_GREEN, `LIQUIDATION CANDIDATE ${account.address} RATIO ${liquidationRatio}}`);
 
         let totalBorrowedEth = constants.ZERO;
         let totalSuppliedEth = constants.ZERO;
@@ -75,6 +80,7 @@ const doLiquidation = (accounts, markets) => {
 
             let marketData = markets[marketAddress]._data;
 
+            // TODO not calculate this again
             let suppliedUnderlying = accountMarket.tokens
                 .mul(marketData.getExchangeRate())
                 .div(constants.TEN.pow(18));
@@ -89,8 +95,9 @@ const doLiquidation = (accounts, markets) => {
                                     .mul(marketData.underlyingPrice)
                                     .div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
 
-            console.log(`++ ${marketData.underlyingToken.formatAmount(borrowedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketBorrowedEth)} ETH borrowed`);
-            console.log(`++ ${marketData.underlyingToken.formatAmount(suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketSuppliedEth)} ETH supplied`);
+            let consoleLine = `++ ${marketData.underlyingToken.formatAmount(borrowedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketBorrowedEth)} ETH borrowed \t`;
+            consoleLine += `${marketData.underlyingToken.formatAmount(suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketSuppliedEth)} ETH supplied`
+            console.log(consoleLine);
 
             totalBorrowedEth = totalBorrowedEth.add(marketBorrowedEth);
             totalSuppliedEth = totalSuppliedEth.add(marketSuppliedEth);
@@ -114,7 +121,7 @@ const listen = (accounts, markets, v1Oracle) => {
                 continue;
             }
 
-            market._data.underlyingPrice = newPrice.div(constants.TEN.pow(18 - cTokenContract._data.underlyingToken.decimals));
+            market._data.underlyingPrice = newPrice.div(constants.TEN.pow(18 - token.decimals));
 
             break;
         }
@@ -216,7 +223,7 @@ const listen = (accounts, markets, v1Oracle) => {
             // Another account liquidated the borrowing account by repaying repayAmount and seizing seizeTokens of cTokenCollateral
             // There is an associated Transfer event
 
-            let collateralContract = allMarkets[cTokenCollateral];
+            let collateralContract = markets[cTokenCollateral];
 
             console.log(`[${cTokenContract._data.underlyingToken.symbol}] LIQUIDATE_BORROW - ${liquidator} ${borrower}
                 ${cTokenContract._data.underlyingToken.formatAmount(repayAmount)} ${cTokenContract._data.underlyingToken.symbol} repaid
@@ -357,7 +364,7 @@ const getMarkets = async (comptrollerContract) => {
         let exchangeRate = await cTokenContract.exchangeRateStored();
 
         console.log(`cTOKEN ${underlyingToken.symbol} 
-            exchangeRate ${cTokenContract._data.getExchangeRate().toString()} CONFIRMED AGAINST (${exchangeRate.toString()})
+            exchangeRate ${cTokenContract._data.getExchangeRate().toString()} CONFIRMED
             totalSupply ${token.formatAmount(totalSupply)} ${token.symbol}
             totalBorrow ${underlyingToken.formatAmount(totalBorrows)} ${underlyingToken.symbol}
             totalCash ${underlyingToken.formatAmount(totalCash)} ${underlyingToken.symbol}
