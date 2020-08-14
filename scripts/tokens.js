@@ -16,6 +16,7 @@ const etherscanApiKey = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
 // Token
 
 function Token(contract, symbol, decimals, price) {
+    this.address = contract.address;
     this.contract = contract;
     this.symbol = symbol;
     this.decimals = decimals;
