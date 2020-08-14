@@ -1,8 +1,8 @@
 pragma solidity ^0.6.0;
 
-contract IComptroller {
+interface IComptroller {
     /// @notice Indicator that this is a Comptroller contract (for inspection)
-    bool public constant isComptroller = true;
+    // bool public constant isComptroller = true;
 
     /*** Assets You Are In ***/
 
@@ -68,4 +68,6 @@ contract IComptroller {
         address cTokenBorrowed,
         address cTokenCollateral,
         uint repayAmount) external view returns (uint, uint);
+
+    function closeFactorMantissa() external view returns (uint);
 }

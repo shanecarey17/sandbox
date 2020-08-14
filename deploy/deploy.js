@@ -14,3 +14,5 @@ module.exports = async ({ getNamedAccounts, deployments, getChainId }) => {
         console.log(`STRATEGY DEPLOYED (${chainId}) @ ${deployResult.address}`);
     }
 };
+
+module.exports.tags = ['strategy'];
