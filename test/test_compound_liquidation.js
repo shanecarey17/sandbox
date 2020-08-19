@@ -6,11 +6,12 @@ const legos = require('@studydefi/money-legos').legos;
 const ethers2 = require('ethers'); // Nomic include defines important methods but doesnt have BigNumber
 
 const COMPTROLLER_ADDRESS = '0x3d9819210a31b4961b30ef54be2aed79b9c9cd3b';
-const LIQUIDATE_ACCOUNT = '0xC940c870A54ba91C3e2A8dD0D01D0bC96fC2672a';
+const UNISWAP_FACTORY = '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f';
+
+const LIQUIDATE_ACCOUNT = '0x2390FC61EBb22872BDAB73c647A18352aeeEfe35';
+
 const CTOKEN_BORROWED = '0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643'; // cDAI
 const CTOKEN_COLLATERAL = '0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5'; // cETH
-const UNISWAP_FACTORY = '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f';
-const BORROWING_ACCOUNT = '0xC940c870A54ba91C3e2A8dD0D01D0bC96fC2672a';
 
 /**
 LIQUIDATION CANDIDATE 0xC940c870A54ba91C3e2A8dD0D01D0bC96fC2672a RATIO 0.15736872769919819}
@@ -59,10 +60,14 @@ describe("Liquidator", async function() {
 
         console.log('ENTERED MARKETS');
 
-        var repayBorrowAmount = ethers2.utils.parseUnits('10');
+        let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(LIQUIDATE_ACCOUNT);
+
+        console.log(`LIQUIDATE ACCOUNT liquidity ${liquidity.toString()} shortfall ${shortfall.toString()}`);
+
+        var repayBorrowAmount = ethers2.utils.parseUnits('1');
 
         let result = await liquidator.liquidate(
-            BORROWING_ACCOUNT,
+            LIQUIDATE_ACCOUNT,
             CTOKEN_BORROWED,
             CTOKEN_COLLATERAL,
             repayBorrowAmount,

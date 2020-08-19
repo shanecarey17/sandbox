@@ -3,7 +3,8 @@ const assert = require('assert');
 const fs = require('fs');
 const util = require('util');
 
-const ethers = require("@nomiclabs/buidler").ethers;
+const bre = require("@nomiclabs/buidler");
+const ethers = bre.ethers;
 
 const wallet = require('./../wallet.js');
 const tokens = require('./../tokens.js');
@@ -424,11 +425,19 @@ const getMarkets = async (comptrollerContract, priceOracleContract) => {
             underlyingToken = tokens.TokenFactory.getEthToken();
         }
 
-        let totalSupply = await cTokenContract.totalSupply();
-        let totalBorrows = await cTokenContract.totalBorrows();
-        let borrowIndex = await cTokenContract.borrowIndex();
-        let totalReserves = await cTokenContract.totalReserves();
-        let totalCash = await cTokenContract.getCash();
+        let [totalSupply, totalBorrows, borrowIndex, totalReserves, totalCash] = Promise.all([
+            cTokenContract.totalSupply(),
+            cTokenContract.totalBorrows(),
+            cTokenContract.borrowIndex(),
+            cTokenContract.totalReserves(),
+            cTokenContract.getCash(),
+        ]);
+
+        // let totalSupply = await cTokenContract.totalSupply();
+        // let totalBorrows = await cTokenContract.totalBorrows();
+        // let borrowIndex = await cTokenContract.borrowIndex();
+        // let totalReserves = await cTokenContract.totalReserves();
+        // let totalCash = await cTokenContract.getCash();
 
         let underlyingPrice = await priceOracleContract.getUnderlyingPrice(marketAddress);
 
@@ -597,6 +606,8 @@ const getUniswapOracle = async () => {
 }
 
 const run = async () => {
+    let accountInput = ethers.utils.getAddress(process.argv[2]);
+
     await tokens.TokenFactory.init();
 
     console.log('READY LITTYQUIDATOR 1');
@@ -607,35 +618,54 @@ const run = async () => {
 
     let markets = await getMarkets(comptrollerContract, uniswapOracle);
 
-    let blockNumber = await getBlockNumber();
+    let enteredMarkets = await comptrollerContract.getAssetsIn(accountInput);
 
-    console.log(`STARTING FROM BLOCK NUMBER ${blockNumber}`);
+    console.log(`ACCOUNT ${accountInput}`);
 
-    // Fetch accounts from REST service
-    let accounts = await getAccounts(markets, blockNumber);
+    for (let enteredMarket of enteredMarkets) {
+        let marketContract = markets[enteredMarket];
+        let marketData = marketContract._data;
 
-    console.log('ACCCOUNTS', Object.keys(accounts).length);
+        let [err, cTokenBalance, borrowBalance, exchangeRateMantissa] = await marketContract.getAccountSnapshot(accountInput);
 
-    doLiquidation(accounts, markets); // once at start
+        let collateralBalance = cTokenBalance.mul(exchangeRateMantissa).div(EXPONENT);
 
-    let ethToken = tokens.TokenFactory.getEthToken();
+        console.log(`-- ${marketData.underlyingToken.symbol}`);
+        
+        console.log(`++ cTokenBalance ${marketData.token.formatAmount(cTokenBalance)} ${marketData.token.symbol}`);
+        console.log(`++ borrowBalance ${marketData.underlyingToken.formatAmount(borrowBalance)} ${marketData.underlyingToken.symbol}`);
+        console.log(`++ collatBalance ${marketData.underlyingToken.formatAmount(collateralBalance)} ${marketData.underlyingToken.symbol}`);
+    }
 
-    // for (let [address, account] of Object.entries(accounts)) {
-    //     let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(address);
-    //     if (shortfall.eq(0)) {
-    //         break;
-    //     }
-    //     console.log(`ACCOUNT ${address} liq ${liquidity.toString()} shortfall ${ethToken.formatAmount(shortfall)}`);
-    // }
+    // let blockNumber = await getBlockNumber();
+
+    // console.log(`STARTING FROM BLOCK NUMBER ${blockNumber}`);
+
+    // // Fetch accounts from REST service
+    // let accounts = await getAccounts(markets, blockNumber);
+
+    // console.log('ACCCOUNTS', Object.keys(accounts).length);
+
+    // doLiquidation(accounts, markets); // once at start
+
+    // let ethToken = tokens.TokenFactory.getEthToken();
+
+    // // for (let [address, account] of Object.entries(accounts)) {
+    // //     let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(address);
+    // //     if (shortfall.eq(0)) {
+    // //         break;
+    // //     }
+    // //     console.log(`ACCOUNT ${address} liq ${liquidity.toString()} shortfall ${ethToken.formatAmount(shortfall)}`);
+    // // }
     
-    return;
+    // return;
 
-    // Don't interrupt the event loop until block num is reset
-    listenPricesUniswap(markets, uniswapOracle);
-    listenMarkets(accounts, markets);
+    // // Don't interrupt the event loop until block num is reset
+    // listenPricesUniswap(markets, uniswapOracle);
+    // listenMarkets(accounts, markets);
 
-    // Start playing events from snapshot
-    ethers.provider.resetEventsBlock(blockNumber + 1);
+    // // Start playing events from snapshot
+    // ethers.provider.resetEventsBlock(blockNumber + 1);
 }
 
 function main() {

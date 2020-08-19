@@ -70,4 +70,6 @@ interface IComptroller {
         uint repayAmount) external view returns (uint, uint);
 
     function closeFactorMantissa() external view returns (uint);
+
+    function getAccountLiquidity(address account) external view returns (uint, uint, uint);
 }
