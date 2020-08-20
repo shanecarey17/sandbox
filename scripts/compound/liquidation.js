@@ -30,36 +30,6 @@ let LIQUIDATION_INCENTIVE_MANTISSA = undefined;
 
 let comptrollerContractGlobal = undefined;
 
-// const getLiquidationRatio = (account, markets) => {
-//     let totalBorrowedEth = constants.ZERO;
-//     let totalSuppliedEth = constants.ZERO;
-
-//     let ethToken = tokens.TokenFactory.getEthToken();
-
-//     for (let [marketAddress, accountMarket] of Object.entries(account)) {
-//         if (marketAddress === 'address') {
-//             continue; // TODO less hacky
-//         }
-
-//         let marketData = markets[marketAddress]._data;
-
-//         let marketBorrowedEth = accountMarket.borrows
-//                                     .mul(marketData.underlyingPrice)
-//                                     .div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
-
-//         let marketSuppliedEth = accountMarket.tokens
-//                                     .mul(marketData.getExchangeRate())
-//                                     .div(constants.TEN.pow(18))
-//                                     .mul(marketData.underlyingPrice)
-//                                     .div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
-
-//         totalBorrowedEth = totalBorrowedEth.add(marketBorrowedEth);
-//         totalSuppliedEth = totalSuppliedEth.add(marketSuppliedEth);
-//     }
-
-//     return totalSuppliedEth / totalBorrowedEth; // Number arithmetic
-// };
-
 const doLiquidation = (accounts, markets) => {
     let ethToken = tokens.TokenFactory.getEthToken();
 
@@ -129,15 +99,6 @@ const doLiquidation = (accounts, markets) => {
         console.log(`++ TOTAL ${ethToken.formatAmount(totalBorrowedEth)} USD borrowed / ${ethToken.formatAmount(totalSuppliedEth)} USD supplied`);
         console.log(`++ SHORTFALL ${ethToken.formatAmount(shortfallEth)}`);
 
-        // confirm against comptroller
-        comptrollerContractGlobal.getAccountLiquidity(account.address).then((result) => {
-            let [err, liquidity, shortfall] = result;
-
-            let color = shortfallEth.eq(shortfall) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
-
-            console.log(color, `ACCOUNT ${account.address} SHORTFALL EXPECTED ${ethToken.formatAmount(shortfallEth)} ACTUAL ${ethToken.formatAmount(shortfall)}`);
-        });
-
         // Pb = price borrow, Ps = price supplied, R = repay amount, Bx = balance
         //
         // C = 1.05 * Pb / Ps
@@ -153,26 +114,27 @@ const doLiquidation = (accounts, markets) => {
         let priceBorrowed = borrowedMarketData.underlyingPrice;
          
         let balanceSupplied = maxSuppliedEthMarket.tokens // no collateral factor for repay calc
-            .mul(suppliedMarketData.getExchangeRate()).div(EXPONENT); // supplied underlying
+            .mul(suppliedMarketData.getExchangeRate())
+            .div(constants.TEN.pow(18 - suppliedMarketData.token.decimals)); // supplied underlying
 
         let repaySupply = balanceSupplied
             .mul(EXPONENT).div(LIQUIDATION_INCENTIVE_MANTISSA) // scale by incentive
-            .mul(priceSupplied).div(EXPONENT) // supplied to eth
-            .mul(constants.TEN.pow(18 - (ethToken.decimals - borrowedMarketData.underlyingToken.decimals))).div(priceBorrowed); // eth to borrowed
+            .mul(priceSupplied).div(constants.TEN.pow(suppliedMarketData.underlyingToken.decimals)) // supplied to eth
+            .mul(EXPONENT).div(priceBorrowed); // eth to borrowed
 
         let balanceBorrowed = maxBorrowedEthMarket.borrows;
 
         let repayBorrow = balanceBorrowed.mul(CLOSE_FACTOR_MANTISSA).div(EXPONENT);
 
-        let repayAmount = repaySupply.gt(repayBorrow) ? repayBorrow : repaySupply;
+        let repayAmount = repaySupply.gt(repayBorrow) ? repayBorrow : repaySupply; // borrowed underlying
 
         console.log(`DEV REPAY SUPPLY ${repaySupply.toString()} ${borrowedMarketData.underlyingToken.formatAmount(repaySupply)} ${suppliedMarketData.underlyingToken.formatAmount(balanceSupplied)}`);
 
-        let repayAmountEth = repayAmount.mul(priceBorrowed).div(EXPONENT);
+        let repayAmountEth = repayAmount.mul(priceBorrowed).div(constants.TEN.pow(borrowedMarketData.underlyingToken.decimals));
 
-        let seizeAmountEth = repayAmount.mul(priceBorrowed.mul(LIQUIDATION_INCENTIVE_MANTISSA).div(EXPONENT)).div(EXPONENT);
+        let seizeAmountEth = repayAmountEth.mul(LIQUIDATION_INCENTIVE_MANTISSA).div(EXPONENT);
 
-        let seizeAmount = seizeAmountEth.mul(EXPONENT).div(priceSupplied);
+        let seizeAmount = seizeAmountEth.mul(constants.TEN.pow(suppliedMarketData.underlyingToken.decimals)).div(priceSupplied);
 
         let consoleLine = `++ LIQUIDATE ${borrowedMarketData.underlyingToken.formatAmount(repayAmount)} ${borrowedMarketData.underlyingToken.symbol} `
         console.log(consoleLine + `=> SEIZE ${suppliedMarketData.underlyingToken.formatAmount(seizeAmount)} ${suppliedMarketData.underlyingToken.symbol}`);
@@ -424,11 +386,13 @@ const getMarkets = async (comptrollerContract, priceOracleContract) => {
             underlyingToken = tokens.TokenFactory.getEthToken();
         }
 
-        let totalSupply = await cTokenContract.totalSupply();
-        let totalBorrows = await cTokenContract.totalBorrows();
-        let borrowIndex = await cTokenContract.borrowIndex();
-        let totalReserves = await cTokenContract.totalReserves();
-        let totalCash = await cTokenContract.getCash();
+        let [totalSupply, totalBorrows, borrowIndex, totalReserves, totalCash] = await Promise.all([
+            cTokenContract.totalSupply(),
+            cTokenContract.totalBorrows(),
+            cTokenContract.borrowIndex(),
+            cTokenContract.totalReserves(),
+            cTokenContract.getCash(),
+        ]);
 
         let underlyingPrice = await priceOracleContract.getUnderlyingPrice(marketAddress);
 
@@ -619,17 +583,7 @@ const run = async () => {
     doLiquidation(accounts, markets); // once at start
 
     let ethToken = tokens.TokenFactory.getEthToken();
-
-    // for (let [address, account] of Object.entries(accounts)) {
-    //     let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(address);
-    //     if (shortfall.eq(0)) {
-    //         break;
-    //     }
-    //     console.log(`ACCOUNT ${address} liq ${liquidity.toString()} shortfall ${ethToken.formatAmount(shortfall)}`);
-    // }
     
-    return;
-
     // Don't interrupt the event loop until block num is reset
     listenPricesUniswap(markets, uniswapOracle);
     listenMarkets(accounts, markets);
