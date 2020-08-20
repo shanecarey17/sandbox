@@ -97,7 +97,7 @@ const doLiquidation = (accounts, markets) => {
                                     .div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
 
             let consoleLine = `++ ${marketData.underlyingToken.formatAmount(borrowedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketBorrowedEth)} USD borrowed \t`;
-            consoleLine += `${marketData.underlyingToken.formatAmount(suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketSuppliedEth)} USD supplied (${ethToken.formatAmount(marketData.collateralFactor)})`
+            consoleLine += `${marketData.token.formatAmount(accountMarket.tokens)} ${marketData.token.symbol} => ${marketData.underlyingToken.formatAmount(suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketSuppliedEth)} USD supplied @(${ethToken.formatAmount(marketData.collateralFactor)})`
             accountConsoleLine += consoleLine + '\n';
 
             totalBorrowedEth = totalBorrowedEth.add(marketBorrowedEth);
@@ -542,12 +542,12 @@ const getAccounts = async (markets, blockNumber) => {
             let tracker = {
                 marketAddress: marketAddress,
                 tokens: underlying.parseAmount(acctToken.supply_balance_underlying.value)
-                    .div(exchangeRate.div(constants.TEN.pow(underlying.decimals))),
+                    .mul(EXPONENT).div(exchangeRate),
                 borrows: underlying.parseAmount(acctToken.borrow_balance_underlying.value),
                 borrowIndex: constants.ZERO, // TODO calculate this from interest
             };
 
-            accountsMap[accountAddress][market.address] = tracker;
+            accountsMap[accountAddress][marketAddress] = tracker;
         }
     }
 

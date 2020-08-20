@@ -425,7 +425,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract) => {
             underlyingToken = tokens.TokenFactory.getEthToken();
         }
 
-        let [totalSupply, totalBorrows, borrowIndex, totalReserves, totalCash] = Promise.all([
+        let [totalSupply, totalBorrows, borrowIndex, totalReserves, totalCash] = await Promise.all([
             cTokenContract.totalSupply(),
             cTokenContract.totalBorrows(),
             cTokenContract.borrowIndex(),
@@ -470,6 +470,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract) => {
         let exchangeRate = await cTokenContract.exchangeRateStored();
 
         console.log(`cTOKEN ${underlyingToken.symbol} 
+	    address ${cTokenContract.address}
             exchangeRate ${cTokenContract._data.getExchangeRate().toString()} CONFIRMED
             totalSupply ${token.formatAmount(totalSupply)} ${token.symbol}
             totalBorrow ${underlyingToken.formatAmount(totalBorrows)} ${underlyingToken.symbol}
@@ -486,15 +487,19 @@ const getMarkets = async (comptrollerContract, priceOracleContract) => {
     return allMarkets;
 }
 
-const getAccounts = async (markets, blockNumber) => {
+const getAccounts = async (markets, blockNumber, accounts) => {
     let allAccounts = [];
 
-    let url = `https://api.compound.finance/api/v2/account`;
+    let url = `https://api.compound.finance/api/v2/account?`;
 
     let reqData = {
         min_borrow_value_in_eth: { value: '0.1' },
         block_number: blockNumber,
         page_size: 2500
+    };
+
+    if (accounts !== undefined) {
+        reqData.addresses = accounts;
     }
 
     let response = await axios.post(url, JSON.stringify(reqData));
@@ -511,7 +516,7 @@ const getAccounts = async (markets, blockNumber) => {
 
     for (var i = 1; i < response.data.pagination_summary.total_pages; i++) {
         let func = async () => {
-            let page_url = `${url}?page_number=${i + 1}`;
+            let page_url = `${url}&page_number=${i + 1}`;
 
             let r = await axios.post(page_url, JSON.stringify(reqData));
 
@@ -539,6 +544,7 @@ const getAccounts = async (markets, blockNumber) => {
         accountsMap[accountAddress].address = accountAddress;
 
         for (let acctToken of account.tokens) {
+            console.log(acctToken);
             let marketAddress = ethers.utils.getAddress(acctToken.address);
 
             let market = markets[marketAddress]; // checksum case
@@ -551,12 +557,12 @@ const getAccounts = async (markets, blockNumber) => {
             let tracker = {
                 marketAddress: marketAddress,
                 tokens: underlying.parseAmount(acctToken.supply_balance_underlying.value)
-                    .div(exchangeRate.div(constants.TEN.pow(underlying.decimals))),
+                    .mul(EXPONENT).div(exchangeRate),
                 borrows: underlying.parseAmount(acctToken.borrow_balance_underlying.value),
                 borrowIndex: constants.ZERO, // TODO calculate this from interest
             };
 
-            accountsMap[accountAddress][market.address] = tracker;
+            accountsMap[accountAddress][marketAddress] = tracker;
         }
     }
 
@@ -605,8 +611,8 @@ const getUniswapOracle = async () => {
     return uniswapAnchoredViewContract;
 }
 
-const run = async () => {
-    let accountInput = ethers.utils.getAddress(process.argv[2]);
+const run = async (accountInput) => {
+    accountInput = ethers.utils.getAddress(accountInput);
 
     await tokens.TokenFactory.init();
 
@@ -617,6 +623,21 @@ const run = async () => {
     let uniswapOracle = await getUniswapOracle();
 
     let markets = await getMarkets(comptrollerContract, uniswapOracle);
+
+    let accounts = await getAccounts(markets, await getBlockNumber(), [accountInput]);
+    console.log(accounts);
+
+    for (let [acctAddr, apiAcct] of Object.entries(accounts)) {
+        for (let [marketAddress, acctMarket] of Object.entries(apiAcct)) {
+            if (marketAddress === 'address') {
+                continue;
+            }
+	    
+	    let market = markets[marketAddress]._data;
+
+	    console.log(`API ${market.token.formatAmount(acctMarket.tokens)} ${market.token.symbol} supplied ${market.underlyingToken.formatAmount(acctMarket.borrows)} ${market.underlyingToken.symbol} borrowed`);
+	}
+    }
 
     let enteredMarkets = await comptrollerContract.getAssetsIn(accountInput);
 
@@ -668,12 +689,5 @@ const run = async () => {
     // ethers.provider.resetEventsBlock(blockNumber + 1);
 }
 
-function main() {
-    try {
-        run();
-    } catch (e) {
-        throw e;
-    }
-}
+module.exports = run;
 
-main();
