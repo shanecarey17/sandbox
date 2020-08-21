@@ -55,17 +55,17 @@ module.exports = {
             network_id: 5777,
             port: 8545,
             logger: new GanacheLogger(log4js.getLogger('ganache')),
-            keepAliveTimeout: 300 * 1000, // ms
+            keepAliveTimeout: 600 * 1000, // ms
             ws: false,
             verbose: false,
-            debug: false,
+            debug: true,
             unlocked_accounts: [
                 "0x9eB7f2591ED42dEe9315b6e2AAF21bA85EA69F8C", // https://etherscan.io/address/0x9eb7f2591ed42dee9315b6e2aaf21ba85ea69f8c
             ],
 
             // Buidler options
             url: 'http://localhost:8545',
-            timeout: 300 * 1000,
+            timeout: 600 * 1000,
         },
         mainnet: {
             url: INFURA_URL,
