@@ -8,10 +8,12 @@ const ethers2 = require('ethers'); // Nomic include defines important methods bu
 const COMPTROLLER_ADDRESS = '0x3d9819210a31b4961b30ef54be2aed79b9c9cd3b';
 const UNISWAP_FACTORY = '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f';
 
-const LIQUIDATE_ACCOUNT = '0x2390FC61EBb22872BDAB73c647A18352aeeEfe35';
+const LIQUIDATE_ACCOUNT = '0x24F700BBa64905C97dD9F1cAc3DAcA8BA81f0285';
 
-const CTOKEN_BORROWED = '0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643'; // cDAI
-const CTOKEN_COLLATERAL = '0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5'; // cETH
+//const CTOKEN_BORROWED = '0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643'; // cDAI
+//const CTOKEN_COLLATERAL = '0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5'; // cETH
+const CTOKEN_COLLATERAL = '0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643'; // cDAI
+const CTOKEN_BORROWED = '0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5'; // cETH
 
 /**
 LIQUIDATION CANDIDATE 0xC940c870A54ba91C3e2A8dD0D01D0bC96fC2672a RATIO 0.15736872769919819}
@@ -64,7 +66,7 @@ describe("Liquidator", async function() {
 
         console.log(`LIQUIDATE ACCOUNT liquidity ${liquidity.toString()} shortfall ${shortfall.toString()}`);
 
-        var repayBorrowAmount = ethers2.utils.parseUnits('1');
+        var repayBorrowAmount = ethers2.utils.parseUnits('0.01');
 
         let result = await liquidator.liquidate(
             LIQUIDATE_ACCOUNT,

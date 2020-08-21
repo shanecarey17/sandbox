@@ -22,6 +22,8 @@ contract CompoundLiquidator is IUniswapV2Callee {
         address cTokenCollateral;
         address borrowAccount;
         uint repayBorrowAmount;
+        address uniswapPair;
+        uint swapCollateralAmount;
     }
 
     constructor() public {
@@ -40,19 +42,42 @@ contract CompoundLiquidator is IUniswapV2Callee {
         address uniswapFactory
     ) external returns (uint) {
         require(owner == msg.sender, "not owner");
-
         require(cTokenBorrowed != cTokenCollateral, "same ctoken");
-
         require(ICToken(cTokenBorrowed).comptroller() == ICToken(cTokenCollateral).comptroller(), "diff comptroller");
-
         require(repayBorrowAmount > 0, "zero amt");
 
         // 1. Do flash swap for borrowed token
 
-        // cEther has no underlying() method smh, have to use WETH with uniswap
-        address borrowedToken;
-        address collateralToken;
+        (address borrowedToken, address collateralToken) = getUnderlyings(cTokenBorrowed, cTokenCollateral);
 
+        address uniswapPair = IUniswapV2Factory(uniswapFactory).getPair(borrowedToken, collateralToken);
+        require(uniswapPair != address(0), "no such pair");
+
+        (uint amount0Out, uint amount1Out, uint swapCollateralAmount) = getAmounts(uniswapPair, borrowedToken, repayBorrowAmount);
+
+        Data memory data = Data({
+            cTokenBorrowed: cTokenBorrowed,
+            cTokenCollateral: cTokenCollateral,
+            borrowAccount: borrowAccount,
+            repayBorrowAmount: repayBorrowAmount,
+            uniswapPair: uniswapPair,
+            swapCollateralAmount: swapCollateralAmount
+        });
+
+        uint startBalance = MyERC20(borrowedToken).balanceOf(address(this));
+        IUniswapV2Pair(uniswapPair).swap(amount0Out, amount1Out, address(this), abi.encode(data));
+        uint endBalance = MyERC20(borrowedToken).balanceOf(address(this));
+
+        if (endBalance < startBalance) {
+            require(false, "you lose");
+        }
+
+        return endBalance - startBalance;
+    }
+
+    function getUnderlyings(address cTokenBorrowed, address cTokenCollateral) internal 
+    returns (address borrowedToken, address collateralToken) {
+        // cEther has no underlying() method smh, have to use WETH with uniswap
         if (cTokenBorrowed == CETH_ADDRESS) {
             borrowedToken = WETH_ADDRESS;
         } else {
@@ -64,31 +89,27 @@ contract CompoundLiquidator is IUniswapV2Callee {
         } else {
             collateralToken = ICToken(cTokenCollateral).underlying();
         }
+    }
 
-        address uniswapPair = IUniswapV2Factory(uniswapFactory).getPair(borrowedToken, collateralToken);
-
-        require(uniswapPair != address(0), "no pair");
-
+    function getAmounts(address uniswapPair, address tokenOut, uint amountOut) internal 
+    returns (uint amount0Out, uint amount1Out, uint amountIn) {
         address pairToken0 = IUniswapV2Pair(uniswapPair).token0();
         address pairToken1 = IUniswapV2Pair(uniswapPair).token1();
+        // amount out
+        amount0Out = tokenOut == pairToken0 ? amountOut : 0;
+        amount1Out = tokenOut == pairToken1 ? amountOut : 0;
+        // amount in
+        (uint reserve0, uint reserve1, uint blockTs) = IUniswapV2Pair(uniswapPair).getReserves();
+        uint reserveOut = tokenOut == pairToken0 ? reserve0 : reserve1;
+        uint reserveIn = tokenOut == pairToken0 ? reserve1 : reserve0;
+        amountIn = getAmountIn(amountOut, reserveIn, reserveOut);
+    }
 
-        uint amount0Out = borrowedToken == pairToken0 ? repayBorrowAmount : 0;
-        uint amount1Out = borrowedToken == pairToken1 ? repayBorrowAmount : 0;
-
-        Data memory data = Data({
-            cTokenBorrowed: cTokenBorrowed,
-            cTokenCollateral: cTokenCollateral,
-            borrowAccount: borrowAccount,
-            repayBorrowAmount: repayBorrowAmount
-        });
-
-        uint startBalance = MyERC20(borrowedToken).balanceOf(address(this));
-
-        IUniswapV2Pair(uniswapPair).swap(amount0Out, amount1Out, address(this), abi.encode(data));
-        
-        uint endBalance = MyERC20(borrowedToken).balanceOf(address(this));
-
-        return endBalance - startBalance;
+    // Stolen from uniswap v2 library
+    function getAmountIn(uint amountOut, uint reserveIn, uint reserveOut) internal pure returns (uint amountIn) {
+        uint numerator = reserveIn * amountOut * 1000;
+        uint denominator = (reserveOut - amountOut) * 997;
+        amountIn = (numerator / denominator) + 1;
     }
 
     function uniswapV2Call(
@@ -109,25 +130,30 @@ contract CompoundLiquidator is IUniswapV2Callee {
         } else {
             require(MyERC20(ICToken(data.cTokenBorrowed).underlying()).balanceOf(address(this)) == data.repayBorrowAmount, "bad swap");
             // Easy we already have the balance
+            MyERC20(ICToken(data.cTokenBorrowed).underlying()).approve(data.cTokenBorrowed, data.repayBorrowAmount);
+
             uint res = ICERC20(data.cTokenBorrowed).liquidateBorrow(data.borrowAccount, data.repayBorrowAmount, data.cTokenCollateral);
 
             require(res == 0, Utils.concat('liquidate fail erc20 - errc ', Utils.uint2str(res)));
         }
-
 
         // 3. Redeem collateral cToken for collateral
         uint collateralTokens = ICToken(data.cTokenCollateral).balanceOf(address(this));
 
         ICToken(data.cTokenCollateral).redeem(collateralTokens);
 
+        address collateralTokenUnderlying;
         if (data.cTokenCollateral == CETH_ADDRESS) {
             // Uniswap needs us to have a balance of WETH to trade out
             // We can just swap our whole balance to WETH here, since we withdraw by ERC20 in other cases
             WETH9(WETH_ADDRESS).deposit.value(address(this).balance)();
+            collateralTokenUnderlying = WETH_ADDRESS;
+        } else {
+            collateralTokenUnderlying = ICToken(data.cTokenCollateral).underlying();
         }
 
-        // 4. Now the flash loan can go through because we have a balance of collateral token
-        // to swap for our borrowed tokens
+        // 4. Now the flash loan can go through because we have a balance of collateral token to swap for our borrowed tokens
+        MyERC20(collateralTokenUnderlying).transfer(data.uniswapPair, data.swapCollateralAmount);
     }
 
     function withdraw(address token) external {
@@ -145,4 +171,5 @@ contract CompoundLiquidator is IUniswapV2Callee {
     function exitMarket(address comptroller, address cToken) external returns (uint) {
         return IComptroller(comptroller).exitMarket(cToken);
     }
+
 }
