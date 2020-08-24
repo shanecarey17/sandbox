@@ -67,6 +67,7 @@ contract CompoundLiquidator is IUniswapV2Callee {
         uint startBalance = MyERC20(borrowedToken).balanceOf(address(this));
         IUniswapV2Pair(uniswapPair).swap(amount0Out, amount1Out, address(this), abi.encode(data));
         uint endBalance = MyERC20(borrowedToken).balanceOf(address(this));
+        //require(false, 'HERE');
 
         if (endBalance < startBalance) {
             require(false, "you lose");

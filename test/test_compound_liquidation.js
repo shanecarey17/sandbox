@@ -74,6 +74,9 @@ describe("Liquidator", async function() {
             CTOKEN_COLLATERAL,
             repayBorrowAmount,
             UNISWAP_FACTORY,
+            {
+                gasLimit: 5 * 10**6, // estimate gas on ganache has bug
+            }
         );
 
         let txDone = await result.wait();
