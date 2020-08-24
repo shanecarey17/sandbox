@@ -3,7 +3,7 @@ pragma solidity ^0.6.0;
 interface ICToken {
     // Constants
     function comptroller() external returns (address);
-    function underlying() external returns (address);
+    function underlying() external returns (address); // TODO remove
 
     // ERC 20
     function symbol() external view returns (string memory);
@@ -20,5 +20,7 @@ interface ICEther {
 }
 
 interface ICERC20 {
+    function underlying() external view returns (address);
+
     function liquidateBorrow(address borrower, uint amount, address collateral) external returns (uint);
 }

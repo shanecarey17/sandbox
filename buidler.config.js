@@ -61,6 +61,8 @@ module.exports = {
             debug: false, // prints opcodes exec'd
             unlocked_accounts: [
                 "0x9eB7f2591ED42dEe9315b6e2AAF21bA85EA69F8C", // https://etherscan.io/address/0x9eb7f2591ed42dee9315b6e2aaf21ba85ea69f8c
+                "0x18c8f1222083997405f2e482338a4650ac02e1d6", // compound admin https://etherscan.io/address/0xaf601cbff871d0be62d18f79c31e387c76fa0374#readContract
+                "0x6d903f6003cca6255D85CcA4D3B5E5146dC33925", // timelock compound
             ],
 
             // Buidler options

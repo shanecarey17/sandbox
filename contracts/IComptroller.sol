@@ -72,4 +72,9 @@ interface IComptroller {
     function closeFactorMantissa() external view returns (uint);
 
     function getAccountLiquidity(address account) external view returns (uint, uint, uint);
+
+    // Impl
+    function oracle() external view returns (address);
+
+    function _setPriceOracle(address newOracle) external returns (uint);    
 }
