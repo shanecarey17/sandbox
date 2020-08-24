@@ -68,6 +68,10 @@ describe("Liquidator", async function() {
 
         var repayBorrowAmount = ethers2.utils.parseUnits('0.01');
 
+        liquidator.once('Success', (profit) => {
+            console.log(`SUCCESS profit<${profit.toString()}>`);
+        });
+
         let result = await liquidator.liquidate(
             LIQUIDATE_ACCOUNT,
             CTOKEN_BORROWED,
@@ -79,9 +83,11 @@ describe("Liquidator", async function() {
             }
         );
 
+        console.log(`RESULT ${JSON.stringify(result, null, 4)}`);
+
         let txDone = await result.wait();
 
-        console.log(txDone);
+        console.log(`GAS USED ${txDone.gasUsed.toString()}`);
     });
 
     after(async () => {

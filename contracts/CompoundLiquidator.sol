@@ -26,6 +26,8 @@ contract CompoundLiquidator is IUniswapV2Callee {
         uint swapCollateralAmount;
     }
 
+    event Success(uint profit);
+
     constructor() public {
         owner = msg.sender;
     }
@@ -73,7 +75,7 @@ contract CompoundLiquidator is IUniswapV2Callee {
             require(false, "you lose");
         }
 
-        return endBalance - startBalance;
+        emit Success(endBalance - startBalance);
     }
 
     function getUnderlyings(address cTokenBorrowed, address cTokenCollateral) internal 
