@@ -68,11 +68,11 @@ describe("Liquidator", async () => {
         // Set prices to 1
         let priceOne = ethers2.utils.parseEther('1');
         await oracleContract.setUnderlyingPrice(CDAI, priceOne); 
-        await oracleContract.setUnderlyingPrice(CWBTC, priceOne);
+        await oracleContract.setUnderlyingPrice(CWBTC, priceOne.mul(ethers2.BigNumber.from(10).pow(10)));
         await oracleContract.setUnderlyingPrice(CETH, priceOne);
 
         expect(await oracleContract.getUnderlyingPrice(CDAI)).to.equal(priceOne);
-        expect(await oracleContract.getUnderlyingPrice(CWBTC)).to.equal(priceOne);
+        expect(await oracleContract.getUnderlyingPrice(CWBTC)).to.equal(priceOne.mul(ethers2.BigNumber.from(10).pow(10)));
         expect(await oracleContract.getUnderlyingPrice(CETH)).to.equal(priceOne);
     });
 
@@ -104,29 +104,34 @@ describe("Liquidator", async () => {
         console.log("liquidity before borrow: ", liquidity.toString());
 
         const cWBTC = await ethers.getContractAt('ICERC20', CWBTC);
-        await cWBTC.connect(borrowingAccount).borrow(
+        const borrowTx = await cWBTC.connect(borrowingAccount).borrow(
             ethers2.utils.parseUnits('1').div(ethers2.BigNumber.from(10).pow(10)),
             {
                 gasLimit: 5 * 10**6, // estimate gas on ganache has bug
             }
         );
+
         // get wbtc balance
         let [cWBTCEroor, cWBTCBalance, WBTCBorrowBalance, cWBTCExchangeRateMantissa] = (await cWBTC.getAccountSnapshot(borrowAccountAddress));
         console.log("cWBTC balance after borrow: ", cWBTCBalance.toString());
         console.log("WBTC borrow balance after borrow: ", WBTCBorrowBalance.toString());
         console.log("cWBTC exchange rate mantissa after borrow: ", cWBTCExchangeRateMantissa.toString());
 
-        // Get rekt
+        let [err2, liquidity2, shortfall2] = await comptrollerContract.getAccountLiquidity(borrowAccountAddress);
+        console.log("error after borrow: ", err2.toString());
+        console.log("liquidity after borrow: ", liquidity2.toString());
+        console.log("shortfall after borrow: ", shortfall2.toString());
+
+        // // Get rekt
         console.log("a blackswan appeared, WBTC went to 1000");
-        await oracleContract.setUnderlyingPrice(CWBTC, ethers2.utils.parseEther('1000'));
-        expect(await oracleContract.getUnderlyingPrice(CWBTC)).to.equal(ethers2.utils.parseEther('1000'));
+        await oracleContract.setUnderlyingPrice(CWBTC, ethers2.utils.parseEther('10').mul(ethers2.BigNumber.from(10).pow(10)));
 
-        [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(borrowAccountAddress);
-        console.log("error: ", err.toString());
-        console.log("liquidity: ", liquidity.toString());
-        console.log("shortfall: ", shortfall.toString());
+        let [err3, liquidity3, shortfall3] = await comptrollerContract.getAccountLiquidity(borrowAccountAddress);
+        console.log("error after price change: ", err3.toString());
+        console.log("liquidity after price change: ", liquidity3.toString());
+        console.log("shortfall after price change: ", shortfall3.toString());
 
-        var repayBorrowAmount = ethers2.utils.parseUnits('0.01').div(ethers2.BigNumber.from(10).pow(10));
+        var repayBorrowAmount = ethers2.utils.parseUnits('.1').div(ethers2.BigNumber.from(10).pow(10));
 
         liquidatorContract.once('Success', (profit) => {
             console.log(`SUCCESS profit<${profit.toString()}>`);
@@ -134,8 +139,8 @@ describe("Liquidator", async () => {
 
         let result = await liquidatorContract.liquidate(
             borrowAccountAddress,
-            CDAI,
             CWBTC,
+            CDAI,
             repayBorrowAmount,
             UNISWAP_FACTORY,
             {
