@@ -17,10 +17,26 @@ interface ICToken {
 
 interface ICEther {    
     function liquidateBorrow(address borrower, address cTokenCollateral) external payable;
+
+    function mint() external payable;
+
+    function borrow(uint borrowAmount) external returns (uint);
+
+    // Comes from CToken, but cant do inheritance on interfaces so sticking here
+    function balanceOf(address) external view returns (uint);
+    function borrowBalanceCurrent(address account) external returns (uint);
 }
 
 interface ICERC20 {
     function underlying() external view returns (address);
 
+    function mint(uint mintAmount) external returns (uint);
+
+    function borrow(uint borrowAmount) external returns (uint);
+
     function liquidateBorrow(address borrower, uint amount, address collateral) external returns (uint);
+
+    // Comes from CToken, but cant do inheritance on interfaces so sticking here
+    function balanceOf(address) external view returns (uint);
+    function getAccountSnapshot(address account) external view returns (uint, uint, uint, uint);
 }

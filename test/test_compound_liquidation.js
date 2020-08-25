@@ -20,7 +20,7 @@ const CTOKEN_BORROWED = '0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5'; // cETH
 
 const CDAI = '0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643';
 const CETH = '0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5';
-const CWBTC = '0xc11b1268c1a384e55c48c2391d8d480264a3a7f4'
+const CWBTC = '0xc11b1268c1a384e55c48c2391d8d480264a3a7f4';
 
 const COMPTROLLER_ADMIN = '0x6d903f6003cca6255D85CcA4D3B5E5146dC33925';
 
@@ -77,11 +77,84 @@ describe("Liquidator", async () => {
     });
 
     it('TOKEN-TOKEN', async () => {
-        console.log('HERE');
+        const borrowAccountAddress = await borrowingAccount.getAddress();
+        const daiBorrowAmount = ethers2.utils.parseUnits('10');
+        const DAI_WHALE = "0x9eB7f2591ED42dEe9315b6e2AAF21bA85EA69F8C";
+        const daiWhale = await ethers.provider.getSigner(DAI_WHALE);
+        const dai = await ethers.getContractAt('MyERC20', legos.erc20.dai.address);
+        await dai.connect(daiWhale).transfer(borrowAccountAddress, daiBorrowAmount);
+
+        // Mint cDai i.e. provide collateral
+        const cDai = await ethers.getContractAt('ICERC20', CDAI);
+        await dai.connect(borrowingAccount).approve(CDAI, daiBorrowAmount);
+        await cDai.connect(borrowingAccount).mint(
+            daiBorrowAmount,
+            {
+                gasLimit: 5 * 10**6, // estimate gas on ganache has bug
+            }
+        );
+        // get cDai balance
+        let [cDAIError, cDaiBalance, daiBorrowBalance, cDaiExchangeRateMantissa] = (await cDai.getAccountSnapshot(borrowAccountAddress));
+        console.log("cDai balance after mint: ", cDaiBalance.toString());
+        console.log("dai borrow balance after mint: ", daiBorrowBalance.toString());
+        console.log("dai exchange rate mantissa after mint: ", cDaiExchangeRateMantissa.toString());
+
+        // get account liquidity
+        let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(borrowAccountAddress);
+        console.log("liquidity before borrow: ", liquidity.toString());
+
+        const cWBTC = await ethers.getContractAt('ICERC20', CWBTC);
+        await cWBTC.connect(borrowingAccount).borrow(
+            ethers2.utils.parseUnits('1').div(ethers2.BigNumber.from(10).pow(10)),
+            {
+                gasLimit: 5 * 10**6, // estimate gas on ganache has bug
+            }
+        );
+        // get wbtc balance
+        let [cWBTCEroor, cWBTCBalance, WBTCBorrowBalance, cWBTCExchangeRateMantissa] = (await cWBTC.getAccountSnapshot(borrowAccountAddress));
+        console.log("cWBTC balance after borrow: ", cWBTCBalance.toString());
+        console.log("WBTC borrow balance after borrow: ", WBTCBorrowBalance.toString());
+        console.log("cWBTC exchange rate mantissa after borrow: ", cWBTCExchangeRateMantissa.toString());
+
+        // Get rekt
+        console.log("a blackswan appeared, WBTC went to 1000");
+        await oracleContract.setUnderlyingPrice(CWBTC, ethers2.utils.parseEther('1000'));
+        expect(await oracleContract.getUnderlyingPrice(CWBTC)).to.equal(ethers2.utils.parseEther('1000'));
+
+        [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(borrowAccountAddress);
+        console.log("error: ", err.toString());
+        console.log("liquidity: ", liquidity.toString());
+        console.log("shortfall: ", shortfall.toString());
+
+        var repayBorrowAmount = ethers2.utils.parseUnits('0.01').div(ethers2.BigNumber.from(10).pow(10));
+
+        liquidatorContract.once('Success', (profit) => {
+            console.log(`SUCCESS profit<${profit.toString()}>`);
+        });
+
+        let result = await liquidatorContract.liquidate(
+            borrowAccountAddress,
+            CDAI,
+            CWBTC,
+            repayBorrowAmount,
+            UNISWAP_FACTORY,
+            {
+                gasLimit: 5 * 10**6, // estimate gas on ganache has bug
+            }
+        );
+
+        console.log(`RESULT ${JSON.stringify(result, null, 4)}`);
+
+        let txDone = await result.wait();
+
+        console.log(`GAS USED ${txDone.gasUsed.toString()}`);
+
+        const cDaiBalanceFinal = (await cDai.getAccountSnapshot(borrowAccountAddress))[1];
+        console.log("cDai balance after liquidation: ", cDaiBalanceFinal.toString());
     });
 
     it('TOKEN-ETH', async () => {
-         console.log('HERE');
+
     });
 
     it('ETH-TOKEN', async () => {
