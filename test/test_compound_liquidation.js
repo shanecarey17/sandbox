@@ -174,25 +174,24 @@ describe("Liquidator", async () => {
         console.log("liquidity after price change: ", liquidity3.toString());
         console.log("shortfall after price change: ", shortfall3.toString());
 
-        console.log('Manipulating uniswap prices');
-        const usdcWhale = await ethers.provider.getSigner(USDC_WHALE);
-        const usdc = await ethers.getContractAt('MyERC20', USDC);
-        const whaleusdcBalance = await usdc.balanceOf(USDC_WHALE);
-        console.log(`whale usdc amount: ${whaleusdcBalance.toString()}`);
-
         const pair = await ethers.getContractAt('IUniswapV2Pair', DAI_USDC_PAIR);
         let [daiReserve, usdcReserve, blockTimestampLast] = await pair.getReserves();
         console.log(`current uniswap dai reserve: ${daiReserve.toString()}`);
         console.log(`current uniswap  usdc reserve: ${usdcReserve.toString()}`);
-        console.log(`current uniswap  dai usdc price: ${daiReserve.div(usdcReserve).toString()}`);
+        console.log(`current uniswap  dai/usdc price: ${daiReserve.div(usdcReserve).toString()}`);
 
         console.log(`sending pair ${usdcReserve} usdc`);
-        await usdc.connect(usdcWhale).transfer(DAI_USDC_PAIR, usdcReserve);
+        await dai.connect(daiWhale).transfer(DAI_USDC_PAIR, daiReserve);
         console.log(`syncing pair`);
         await pair.sync({
             gasLimit: 5 * 10**6
         });
         console.log('pair synced');
+
+        let [daiReserve2, usdcReserve2, blockTimestampLast2] = await pair.getReserves();
+        console.log(`synced uniswap dai reserve: ${daiReserve2.toString()}`);
+        console.log(`synced uniswap  usdc reserve: ${usdcReserve2.toString()}`);
+        console.log(`synced uniswap  dai/usdc price: ${daiReserve2.div(usdcReserve2).toString()}`);
 
         var repayBorrowAmount = ethers2.utils.parseUnits('.1').div(ethers2.BigNumber.from(10).pow(12));
 
