@@ -196,10 +196,6 @@ describe("Liquidator", async () => {
 
         var repayBorrowAmount = ethers2.utils.parseUnits('.1').div(ethers2.BigNumber.from(10).pow(12));
 
-        liquidatorContract.once('Success', (profit) => {
-            console.log(`SUCCESS profit<${profit.toString()}>`);
-        });
-
         let result = await liquidatorContract.liquidate(
             borrowAccountAddress,
             CUSDC,
@@ -214,9 +210,9 @@ describe("Liquidator", async () => {
         let txDone = await result.wait();
 
         console.log(`GAS USED ${txDone.gasUsed.toString()}`);
-
-        const cDaiBalanceFinal = (await cDai.getAccountSnapshot(borrowAccountAddress))[1];
-        console.log("cDai balance after liquidation: ", cDaiBalanceFinal.toString());
+        const strategyDaiBalance = await dai.balanceOf(liquidatorContract.address);
+        console.log(`liquidator dai balance: ${strategyDaiBalance.toString()}`);
+        expect(true).to.equal(strategyDaiBalance.gt(0));
     });
 
     it.skip('TOKEN-ETH', async () => {
