@@ -21,6 +21,15 @@ const CTOKEN_BORROWED = '0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5'; // cETH
 const CDAI = '0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643';
 const CETH = '0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5';
 const CWBTC = '0xc11b1268c1a384e55c48c2391d8d480264a3a7f4';
+const CUSDC = '0x39aa39c021dfbae8fac545936693ac917d5e7563';
+
+const DAI = '0x6b175474e89094c44da98b954eedeac495271d0f';
+const WBTC = '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599';
+const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+
+const USDC_WHALE = "0x8cee3eeab46774c1cde4f6368e3ae68bccd760bf";
+
+const DAI_USDC_PAIR = '0xAE461cA67B15dc8dc81CE7615e0320dA1A9aB8D5';
 
 const COMPTROLLER_ADMIN = '0x6d903f6003cca6255D85CcA4D3B5E5146dC33925';
 
@@ -69,16 +78,47 @@ describe("Liquidator", async () => {
         let priceOne = ethers2.utils.parseEther('1');
         await oracleContract.setUnderlyingPrice(CDAI, priceOne); 
         await oracleContract.setUnderlyingPrice(CWBTC, priceOne.mul(ethers2.BigNumber.from(10).pow(10)));
+        await oracleContract.setUnderlyingPrice(CUSDC, priceOne.mul(ethers2.BigNumber.from(10).pow(12)));
         await oracleContract.setUnderlyingPrice(CETH, priceOne);
 
         expect(await oracleContract.getUnderlyingPrice(CDAI)).to.equal(priceOne);
         expect(await oracleContract.getUnderlyingPrice(CWBTC)).to.equal(priceOne.mul(ethers2.BigNumber.from(10).pow(10)));
+        expect(await oracleContract.getUnderlyingPrice(CUSDC)).to.equal(priceOne.mul(ethers2.BigNumber.from(10).pow(12)));
         expect(await oracleContract.getUnderlyingPrice(CETH)).to.equal(priceOne);
+    });
+
+    it.skip('test uniswap manipulation', async () => {
+        const USDC_WHALE = "0x8cee3eeab46774c1cde4f6368e3ae68bccd760bf";
+        const usdcWhale = await ethers.provider.getSigner(USDC_WHALE);
+        const usdc = await ethers.getContractAt('MyERC20', USDC);
+        const whaleusdcBalance = await usdc.balanceOf(USDC_WHALE);
+        console.log(`whale usdc amount: ${whaleusdcBalance.toString()}`);
+
+        const pair = await ethers.getContractAt('IUniswapV2Pair', DAI_USDC_PAIR);
+        let [daiReserve, usdcReserve, blockTimestampLast] = await pair.getReserves();
+        console.log(`dai reserve: ${daiReserve.toString()}`);
+        console.log(`usdc reserve: ${usdcReserve.toString()}`);
+        console.log(`dai usdc price: ${daiReserve.div(usdcReserve).toString()}`);
+
+        console.log(`sending pair ${usdcReserve} usdc`);
+        await usdc.connect(usdcWhale).transfer(DAI_USDC_PAIR, usdcReserve);
+        console.log(`syncing pair`);
+        await pair.sync({
+            gasLimit: 5 * 10**6
+        });
+        console.log('pair synced');
+
+        console.log('Getting synced reserves');
+        let [daiReserve2, usdcReserve2, blockTimestampLast2] = await pair.getReserves();
+        console.log(`dai reserve: ${daiReserve2.toString()}`);
+        console.log(`usdc reserve: ${usdcReserve2.toString()}`);
+        console.log(`dai usdc price: ${daiReserve2.div(usdcReserve2).toString()}`);
     });
 
     it('TOKEN-TOKEN', async () => {
         const borrowAccountAddress = await borrowingAccount.getAddress();
-        const daiBorrowAmount = ethers2.utils.parseUnits('10');
+
+        const daiBorrowAmount = ethers2.utils.parseUnits('2');
         const DAI_WHALE = "0x9eB7f2591ED42dEe9315b6e2AAF21bA85EA69F8C";
         const daiWhale = await ethers.provider.getSigner(DAI_WHALE);
         const dai = await ethers.getContractAt('MyERC20', legos.erc20.dai.address);
@@ -86,6 +126,9 @@ describe("Liquidator", async () => {
 
         // Mint cDai i.e. provide collateral
         const cDai = await ethers.getContractAt('ICERC20', CDAI);
+        const cDaiBalanceInitial = (await cDai.getAccountSnapshot(borrowAccountAddress))[1];
+        console.log("cDai balance before liquidation: ", cDaiBalanceInitial.toString());
+
         await dai.connect(borrowingAccount).approve(CDAI, daiBorrowAmount);
         await cDai.connect(borrowingAccount).mint(
             daiBorrowAmount,
@@ -103,19 +146,19 @@ describe("Liquidator", async () => {
         let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(borrowAccountAddress);
         console.log("liquidity before borrow: ", liquidity.toString());
 
-        const cWBTC = await ethers.getContractAt('ICERC20', CWBTC);
-        const borrowTx = await cWBTC.connect(borrowingAccount).borrow(
-            ethers2.utils.parseUnits('1').div(ethers2.BigNumber.from(10).pow(10)),
+        const cUSDC = await ethers.getContractAt('ICERC20', CUSDC);
+        await cUSDC.connect(borrowingAccount).borrow(
+            ethers2.utils.parseUnits('1').div(ethers2.BigNumber.from(10).pow(12)),
             {
                 gasLimit: 5 * 10**6, // estimate gas on ganache has bug
             }
         );
 
         // get wbtc balance
-        let [cWBTCEroor, cWBTCBalance, WBTCBorrowBalance, cWBTCExchangeRateMantissa] = (await cWBTC.getAccountSnapshot(borrowAccountAddress));
-        console.log("cWBTC balance after borrow: ", cWBTCBalance.toString());
-        console.log("WBTC borrow balance after borrow: ", WBTCBorrowBalance.toString());
-        console.log("cWBTC exchange rate mantissa after borrow: ", cWBTCExchangeRateMantissa.toString());
+        let [cUSDCError, cUSDCBalance, USDCBorrowBalance, cUSDCExchangeRateMantissa] = await cUSDC.getAccountSnapshot(borrowAccountAddress);
+        console.log("cUSDC balance after borrow: ", cUSDCBalance.toString());
+        console.log("USDC borrow balance after borrow: ", USDCBorrowBalance.toString());
+        console.log("cUSDC exchange rate mantissa after borrow: ", cUSDCExchangeRateMantissa.toString());
 
         let [err2, liquidity2, shortfall2] = await comptrollerContract.getAccountLiquidity(borrowAccountAddress);
         console.log("error after borrow: ", err2.toString());
@@ -123,15 +166,35 @@ describe("Liquidator", async () => {
         console.log("shortfall after borrow: ", shortfall2.toString());
 
         // // Get rekt
-        console.log("a blackswan appeared, WBTC went to 1000");
-        await oracleContract.setUnderlyingPrice(CWBTC, ethers2.utils.parseEther('10').mul(ethers2.BigNumber.from(10).pow(10)));
+        console.log("a blackswan appeared, USDC went to $2");
+        await oracleContract.setUnderlyingPrice(CUSDC, ethers2.utils.parseEther('2').mul(ethers2.BigNumber.from(10).pow(12)));
 
         let [err3, liquidity3, shortfall3] = await comptrollerContract.getAccountLiquidity(borrowAccountAddress);
         console.log("error after price change: ", err3.toString());
         console.log("liquidity after price change: ", liquidity3.toString());
         console.log("shortfall after price change: ", shortfall3.toString());
 
-        var repayBorrowAmount = ethers2.utils.parseUnits('.1').div(ethers2.BigNumber.from(10).pow(10));
+        console.log('Manipulating uniswap prices');
+        const usdcWhale = await ethers.provider.getSigner(USDC_WHALE);
+        const usdc = await ethers.getContractAt('MyERC20', USDC);
+        const whaleusdcBalance = await usdc.balanceOf(USDC_WHALE);
+        console.log(`whale usdc amount: ${whaleusdcBalance.toString()}`);
+
+        const pair = await ethers.getContractAt('IUniswapV2Pair', DAI_USDC_PAIR);
+        let [daiReserve, usdcReserve, blockTimestampLast] = await pair.getReserves();
+        console.log(`current uniswap dai reserve: ${daiReserve.toString()}`);
+        console.log(`current uniswap  usdc reserve: ${usdcReserve.toString()}`);
+        console.log(`current uniswap  dai usdc price: ${daiReserve.div(usdcReserve).toString()}`);
+
+        console.log(`sending pair ${usdcReserve} usdc`);
+        await usdc.connect(usdcWhale).transfer(DAI_USDC_PAIR, usdcReserve);
+        console.log(`syncing pair`);
+        await pair.sync({
+            gasLimit: 5 * 10**6
+        });
+        console.log('pair synced');
+
+        var repayBorrowAmount = ethers2.utils.parseUnits('.1').div(ethers2.BigNumber.from(10).pow(12));
 
         liquidatorContract.once('Success', (profit) => {
             console.log(`SUCCESS profit<${profit.toString()}>`);
@@ -139,7 +202,7 @@ describe("Liquidator", async () => {
 
         let result = await liquidatorContract.liquidate(
             borrowAccountAddress,
-            CWBTC,
+            CUSDC,
             CDAI,
             repayBorrowAmount,
             UNISWAP_FACTORY,
@@ -147,8 +210,6 @@ describe("Liquidator", async () => {
                 gasLimit: 5 * 10**6, // estimate gas on ganache has bug
             }
         );
-
-        console.log(`RESULT ${JSON.stringify(result, null, 4)}`);
 
         let txDone = await result.wait();
 
@@ -158,11 +219,11 @@ describe("Liquidator", async () => {
         console.log("cDai balance after liquidation: ", cDaiBalanceFinal.toString());
     });
 
-    it('TOKEN-ETH', async () => {
+    it.skip('TOKEN-ETH', async () => {
 
     });
 
-    it('ETH-TOKEN', async () => {
+    it.skip('ETH-TOKEN', async () => {
          console.log('HERE');
     });
 
