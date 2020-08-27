@@ -29,9 +29,14 @@ describe("Liquidator", async () => {
     let comptrollerContract;
     let oracleContract;
 
-    let borrowingAccount;
-    
+    let ownerAccount;
+    let ownerAccountAddress;
+
     before(async () => {
+        let signers = await ethers.getSigners();
+        ownerAccount = signers[0];
+        ownerAccountAddress = await ownerAccount.getAddress();
+
         // Deploy liquidator
         await deployments.fixture('liquidator'); // tag
         const liqDeployment = await deployments.get("CompoundLiquidator");
@@ -46,7 +51,6 @@ describe("Liquidator", async () => {
         oracleContract = await oracleFactory.deploy();
 
         // give some gas to set oracle
-        let signers = await ethers.getSigners();
         await signers[9].sendTransaction({
             to: COMPTROLLER_ADMIN,
             value: ethers2.utils.parseEther('0.1'),
@@ -59,7 +63,7 @@ describe("Liquidator", async () => {
 
     it('DAI-WETH', async () => {
         let signers = await ethers.getSigners();
-        const borrowingAccount = signers[0];
+        const borrowingAccount = signers[1];
         const borrowAccountAddress = await borrowingAccount.getAddress();
         await comptrollerContract.connect(borrowingAccount).enterMarkets([CDAI, CUSDC]);
         await liquidatorContract.enterMarkets(COMPTROLLER_ADDRESS, [CDAI, CUSDC]);
@@ -165,11 +169,14 @@ describe("Liquidator", async () => {
         const strategyDaiBalance = await dai.balanceOf(liquidatorContract.address);
         console.log(`liquidator dai balance: ${strategyDaiBalance.toString()}`);
         expect(true).to.equal(strategyDaiBalance.gt(0));
+
+        await liquidatorContract.connect(ownerAccount).withdraw(dai.address);
+        expect(await dai.balanceOf(ownerAccountAddress)).to.equal(strategyDaiBalance);
     });
 
     it('DAI-ETH', async () => {
         let signers = await ethers.getSigners();
-        const borrowingAccount = signers[1];
+        const borrowingAccount = signers[2];
         const borrowAccountAddress = await borrowingAccount.getAddress();
         await comptrollerContract.connect(borrowingAccount).enterMarkets([CDAI, CETH]);
         await liquidatorContract.enterMarkets(COMPTROLLER_ADDRESS, [CDAI, CETH]);
@@ -292,11 +299,16 @@ describe("Liquidator", async () => {
         const strategyDaiBalance = await dai.balanceOf(liquidatorContract.address);
         console.log(`liquidator dai balance: ${strategyDaiBalance.toString()}`);
         expect(true).to.equal(strategyDaiBalance.gt(0));
+
+        let prevOwnerDaiBalance = await dai.balanceOf(ownerAccountAddress); // second test, residual balance
+        await liquidatorContract.connect(ownerAccount).withdraw(dai.address);
+        let newOwnerDaiBalance = await dai.balanceOf(ownerAccountAddress);
+        expect(newOwnerDaiBalance.sub(prevOwnerDaiBalance)).to.equal(strategyDaiBalance);
     });
 
     it('ETH-TOKEN', async () => {
         let signers = await ethers.getSigners();
-        const borrowingAccount = signers[2];
+        const borrowingAccount = signers[3];
         const borrowAccountAddress = await borrowingAccount.getAddress();
         await comptrollerContract.connect(borrowingAccount).enterMarkets([CDAI, CETH]);
         await liquidatorContract.enterMarkets(COMPTROLLER_ADDRESS, [CDAI, CETH]);
@@ -418,5 +430,8 @@ describe("Liquidator", async () => {
         const finalWethBalance = await weth.connect(liquidatorContract.address).balanceOf(liquidatorContract.address);
         console.log(`final weth balance: ${finalWethBalance}`);
         expect(true).to.equal(finalWethBalance.gt(0));
+
+        await liquidatorContract.connect(ownerAccount).withdraw(weth.address);
+        expect(await weth.balanceOf(ownerAccountAddress)).to.equal(finalWethBalance);
     });
 });
