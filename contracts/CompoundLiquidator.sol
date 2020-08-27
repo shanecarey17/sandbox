@@ -130,7 +130,7 @@ contract CompoundLiquidator is IUniswapV2Callee {
             // Do the liquidate, value() specifies the repay amount in ETH
             ICEther(data.cTokenBorrowed).liquidateBorrow.value(data.repayBorrowAmount)(data.borrowAccount, data.cTokenCollateral);
         } else {
-            require(MyERC20(ICToken(data.cTokenBorrowed).underlying()).balanceOf(address(this)) == data.repayBorrowAmount, "bad swap");
+            require(MyERC20(ICToken(data.cTokenBorrowed).underlying()).balanceOf(address(this)) >= data.repayBorrowAmount, "bad swap");
             // Easy we already have the balance
             MyERC20(ICToken(data.cTokenBorrowed).underlying()).approve(data.cTokenBorrowed, data.repayBorrowAmount);
 
