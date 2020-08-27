@@ -7,29 +7,15 @@ const assert = require('assert');
 const ethers2 = require('ethers'); // Nomic include defines important methods but doesnt have BigNumber
 
 const COMPTROLLER_ADDRESS = '0x3d9819210a31b4961b30ef54be2aed79b9c9cd3b';
-const COMPTROLLER_IMPL_ADDRESS = '0xAf601CbFF871d0BE62D18F79C31e387c76fa0374';
 
 const UNISWAP_FACTORY = '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f';
 
-const LIQUIDATE_ACCOUNT = '0x24F700BBa64905C97dD9F1cAc3DAcA8BA81f0285';
-
-//const CTOKEN_BORROWED = '0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643'; // cDAI
-//const CTOKEN_COLLATERAL = '0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5'; // cETH
-const CTOKEN_COLLATERAL = '0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643'; // cDAI
-const CTOKEN_BORROWED = '0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5'; // cETH
-
 const CDAI = '0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643';
 const CETH = '0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5';
-const CWBTC = '0xc11b1268c1a384e55c48c2391d8d480264a3a7f4';
 const CUSDC = '0x39aa39c021dfbae8fac545936693ac917d5e7563';
 
-const DAI = '0x6b175474e89094c44da98b954eedeac495271d0f';
-const WBTC = '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599';
-const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
-
-const USDC_WHALE = "0x8cee3eeab46774c1cde4f6368e3ae68bccd760bf";
-
 const DAI_USDC_PAIR = '0xAE461cA67B15dc8dc81CE7615e0320dA1A9aB8D5';
+const DAI_WETH_PAIR = '0xA478c2975Ab1Ea89e8196811F51A7B7Ade33eB11';
 
 const COMPTROLLER_ADMIN = '0x6d903f6003cca6255D85CcA4D3B5E5146dC33925';
 
@@ -39,15 +25,8 @@ describe("Liquidator", async () => {
     let oracleContract;
 
     let borrowingAccount;
-    let liquidatingAccount;
     
     before(async () => {
-        // Load accounts
-        let signers = await ethers.getSigners();
-
-        borrowingAccount = signers[0];
-        liquidatingAccount = signers[1];
-
         // Deploy liquidator
         await deployments.fixture('liquidator'); // tag
         const liqDeployment = await deployments.get("CompoundLiquidator");
@@ -62,61 +41,31 @@ describe("Liquidator", async () => {
         oracleContract = await oracleFactory.deploy();
 
         // give some gas to set oracle
-        await borrowingAccount.sendTransaction({
+        let signers = await ethers.getSigners();
+        await signers[9].sendTransaction({
             to: COMPTROLLER_ADMIN,
             value: ethers2.utils.parseEther('0.1'),
         });
+
         let compAdmin = await ethers.provider.getSigner(COMPTROLLER_ADMIN);
         await comptrollerContract.connect(compAdmin)._setPriceOracle(oracleContract.address);
         expect(await comptrollerContract.oracle()).to.equal(oracleContract.address);
-        
-        // Enter markets
-        await liquidator.enterMarkets(COMPTROLLER_ADDRESS, [CDAI, CETH, CWBTC]);
-        await comptrollerContract.connect(borrowingAccount).enterMarkets([CDAI, CETH, CWBTC]);
+    });
+
+    it('DAI-WETH', async () => {
+        let signers = await ethers.getSigners();
+        const borrowingAccount = signers[0];
+        const borrowAccountAddress = await borrowingAccount.getAddress();
+        await comptrollerContract.connect(borrowingAccount).enterMarkets([CDAI, CUSDC]);
+        await liquidatorContract.enterMarkets(COMPTROLLER_ADDRESS, [CDAI, CUSDC]);
 
         // Set prices to 1
         let priceOne = ethers2.utils.parseEther('1');
-        await oracleContract.setUnderlyingPrice(CDAI, priceOne); 
-        await oracleContract.setUnderlyingPrice(CWBTC, priceOne.mul(ethers2.BigNumber.from(10).pow(10)));
+        await oracleContract.setUnderlyingPrice(CDAI, priceOne);
         await oracleContract.setUnderlyingPrice(CUSDC, priceOne.mul(ethers2.BigNumber.from(10).pow(12)));
-        await oracleContract.setUnderlyingPrice(CETH, priceOne);
 
         expect(await oracleContract.getUnderlyingPrice(CDAI)).to.equal(priceOne);
-        expect(await oracleContract.getUnderlyingPrice(CWBTC)).to.equal(priceOne.mul(ethers2.BigNumber.from(10).pow(10)));
         expect(await oracleContract.getUnderlyingPrice(CUSDC)).to.equal(priceOne.mul(ethers2.BigNumber.from(10).pow(12)));
-        expect(await oracleContract.getUnderlyingPrice(CETH)).to.equal(priceOne);
-    });
-
-    it.skip('test uniswap manipulation', async () => {
-        const USDC_WHALE = "0x8cee3eeab46774c1cde4f6368e3ae68bccd760bf";
-        const usdcWhale = await ethers.provider.getSigner(USDC_WHALE);
-        const usdc = await ethers.getContractAt('MyERC20', USDC);
-        const whaleusdcBalance = await usdc.balanceOf(USDC_WHALE);
-        console.log(`whale usdc amount: ${whaleusdcBalance.toString()}`);
-
-        const pair = await ethers.getContractAt('IUniswapV2Pair', DAI_USDC_PAIR);
-        let [daiReserve, usdcReserve, blockTimestampLast] = await pair.getReserves();
-        console.log(`dai reserve: ${daiReserve.toString()}`);
-        console.log(`usdc reserve: ${usdcReserve.toString()}`);
-        console.log(`dai usdc price: ${daiReserve.div(usdcReserve).toString()}`);
-
-        console.log(`sending pair ${usdcReserve} usdc`);
-        await usdc.connect(usdcWhale).transfer(DAI_USDC_PAIR, usdcReserve);
-        console.log(`syncing pair`);
-        await pair.sync({
-            gasLimit: 5 * 10**6
-        });
-        console.log('pair synced');
-
-        console.log('Getting synced reserves');
-        let [daiReserve2, usdcReserve2, blockTimestampLast2] = await pair.getReserves();
-        console.log(`dai reserve: ${daiReserve2.toString()}`);
-        console.log(`usdc reserve: ${usdcReserve2.toString()}`);
-        console.log(`dai usdc price: ${daiReserve2.div(usdcReserve2).toString()}`);
-    });
-
-    it('TOKEN-TOKEN', async () => {
-        const borrowAccountAddress = await borrowingAccount.getAddress();
 
         const daiBorrowAmount = ethers2.utils.parseUnits('2');
         const DAI_WHALE = "0x9eB7f2591ED42dEe9315b6e2AAF21bA85EA69F8C";
@@ -180,7 +129,7 @@ describe("Liquidator", async () => {
         console.log(`current uniswap  usdc reserve: ${usdcReserve.toString()}`);
         console.log(`current uniswap  dai/usdc price: ${daiReserve.div(usdcReserve).toString()}`);
 
-        console.log(`sending pair ${usdcReserve} usdc`);
+        console.log(`sending pair ${usdcReserve} dai`);
         await dai.connect(daiWhale).transfer(DAI_USDC_PAIR, daiReserve);
         console.log(`syncing pair`);
         await pair.sync({
@@ -214,57 +163,121 @@ describe("Liquidator", async () => {
         expect(true).to.equal(strategyDaiBalance.gt(0));
     });
 
-    it.skip('TOKEN-ETH', async () => {
+    it('DAI-ETH', async () => {
+        let signers = await ethers.getSigners();
+        const borrowingAccount = signers[1];
+        const borrowAccountAddress = await borrowingAccount.getAddress();
+        await comptrollerContract.connect(borrowingAccount).enterMarkets([CDAI, CETH]);
+        await liquidatorContract.enterMarkets(COMPTROLLER_ADDRESS, [CDAI, CETH]);
 
-    });
+        const pair = await ethers.getContractAt('IUniswapV2Pair', DAI_WETH_PAIR);
+        let [daiReserve, wethReserve, blockTimestampLast] = await pair.getReserves();
+        let wethToDai = daiReserve.div(wethReserve);
+        console.log(`pair initial dai reserve ${daiReserve}`);
+        console.log(`pair initial weth reserve ${wethReserve}`);
+        console.log(`dai/weth price ${wethToDai}`);
 
-    it.skip('ETH-TOKEN', async () => {
-         console.log('HERE');
-    });
+        // Set prices to 1
+        let priceOne = ethers2.utils.parseEther('1');
+        // Since dai is $1 and weth/dai both have mantissa of 18, we can treat this is the weth price in $
+        let wethToDaiInEther = ethers2.utils.parseEther(wethToDai.toString());
+        await oracleContract.setUnderlyingPrice(CDAI, priceOne);
+        await oracleContract.setUnderlyingPrice(CETH, wethToDaiInEther);
 
-    it.skip("Should work", async () => {
-        // Get borrowed amount
-        const borrowedContract = await ethers.getContractAt("ICToken", CTOKEN_BORROWED);
+        expect(await oracleContract.getUnderlyingPrice(CDAI)).to.equal(priceOne);
+        expect(await oracleContract.getUnderlyingPrice(CETH)).to.equal(wethToDaiInEther);
+        await comptrollerContract.connect(borrowingAccount).enterMarkets([CDAI, CETH]);
 
-        let borrowedAmount = await borrowedContract.borrowBalanceStored(LIQUIDATE_ACCOUNT);
+        const daiLendAmount = wethToDaiInEther;
+        console.log(`daiLendAmount: ${daiLendAmount}`);
+        const DAI_WHALE = "0x9eB7f2591ED42dEe9315b6e2AAF21bA85EA69F8C";
+        const daiWhale = await ethers.provider.getSigner(DAI_WHALE);
+        const dai = await ethers.getContractAt('MyERC20', legos.erc20.dai.address);
+        await dai.connect(daiWhale).transfer(borrowAccountAddress, daiLendAmount);
+        const whaleDaiAmount = await dai.balanceOf(DAI_WHALE);
+        console.log(`whale dai amount: ${whaleDaiAmount}`);
 
-        console.log(`BORROWED AMOUNT ${ethers2.utils.formatUnits(borrowedAmount)} DAI`);
+        // Mint cDai i.e. provide collateral
+        const cDai = await ethers.getContractAt('ICERC20', CDAI);
+        await dai.connect(borrowingAccount).approve(CDAI, daiLendAmount);
+        await cDai.connect(borrowingAccount).mint(
+            daiLendAmount,
+            {
+                gasLimit: 5 * 10**6, // estimate gas on ganache has bug
+            }
+        );
+        // get cDai balance
+        let [cDAIError, cDaiBalance, daiBorrowBalance, cDaiExchangeRateMantissa] = (await cDai.getAccountSnapshot(borrowAccountAddress));
+        console.log("cDai balance after mint: ", cDaiBalance.toString());
+        console.log("dai borrow balance after mint: ", daiBorrowBalance.toString());
+        console.log("dai exchange rate mantissa after mint: ", cDaiExchangeRateMantissa.toString());
 
-        const collateralContract = await ethers.getContractAt('ICToken', CTOKEN_COLLATERAL);
+        let [isListed, daiCollateralFactor] = await comptrollerContract.markets(CDAI);
+        console.log(`cDai collateral factor: ${daiCollateralFactor}`);
 
-        let collateralAmount = await collateralContract.balanceOf(LIQUIDATE_ACCOUNT);
+        // get account liquidity
+        let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(borrowAccountAddress);
+        console.log("error: ", err.toString());
+        console.log("liquidity before borrow: ", liquidity.toString());
+        console.log("liquidity before borrow: ", shortfall.toString());
 
-        console.log(`COLLATERAL AMOUNT ${ethers2.utils.formatUnits(collateralAmount)} cETH`);
+        const cETH = await ethers.getContractAt('ICEther', CETH);
+        // const ethBorrowAmount = ethers2.utils.parseEther('1').mul(daiCollateralFactor).div(ethers2.BigNumber.from(10).pow(18));
+        const ethBorrowAmount = ethers2.utils.parseEther('.74');
+        console.log(`ethBorrowAmount: ${ethBorrowAmount}`);
+        await cETH.connect(borrowingAccount).borrow(
+            ethBorrowAmount,
+            {
+                gasLimit: 5 * 10**6, // estimate gas on ganache has bug
+            }
+        );
 
-        const comptrollerContract = await ethers.getContractAt("IComptroller", COMPTROLLER_ADDRESS);
+        // get wbtc balance
+        let [cETHError, cETHBalance, ETHBorrowBalance, cETHExchangeRateMantissa] = await cETH.getAccountSnapshot(borrowAccountAddress);
+        console.log("cEth balance after borrow: ", cETHBalance.toString());
+        console.log("ETH borrow balance after borrow: ", ETHBorrowBalance.toString());
+        console.log("cETH exchange rate mantissa after borrow: ", cETHExchangeRateMantissa.toString());
 
-        // Get max repay percent
-        let closeFactorMantissa = await comptrollerContract.closeFactorMantissa();
+        let [err2, liquidity2, shortfall2] = await comptrollerContract.getAccountLiquidity(borrowAccountAddress);
+        console.log("error after borrow: ", err2.toString());
+        console.log("liquidity after borrow: ", liquidity2.toString());
+        console.log("shortfall after borrow: ", shortfall2.toString());
 
-        console.log(`CLOSE FACTOR ${closeFactorMantissa / ethers2.BigNumber.from(10).pow(18)}`);
-
-        // Do the liquidation
-        const liqDeployment = await deployments.get("CompoundLiquidator");
-        const liquidator = await ethers.getContractAt("CompoundLiquidator", liqDeployment.address);
-
-        await liquidator.enterMarkets(COMPTROLLER_ADDRESS, [CTOKEN_BORROWED, CTOKEN_COLLATERAL]);
-
-        console.log('ENTERED MARKETS');
-
-        let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(LIQUIDATE_ACCOUNT);
-
-        console.log(`LIQUIDATE ACCOUNT liquidity ${liquidity.toString()} shortfall ${shortfall.toString()}`);
-
-        var repayBorrowAmount = ethers2.utils.parseUnits('0.01');
-
-        liquidator.once('Success', (profit) => {
-            console.log(`SUCCESS profit<${profit.toString()}>`);
+        // // Get rekt
+        // update weth price by 10%, whale should be able to cover the necessary dai amount
+        console.log('update prices');
+        const additionalDaiReserve = daiReserve.div(10);
+        console.log(`sending pair ${additionalDaiReserve} dai`);
+        await dai.connect(daiWhale).transfer(DAI_WETH_PAIR, additionalDaiReserve);
+        console.log(`syncing pair`);
+        await pair.sync({
+            gasLimit: 5 * 10**6
         });
+        console.log('pair synced');
 
-        let result = await liquidator.liquidate(
-            LIQUIDATE_ACCOUNT,
-            CTOKEN_BORROWED,
-            CTOKEN_COLLATERAL,
+        let [daiReserveUpdated, wethReserveUpdated, blockTimestampLastUpdated] = await pair.getReserves();
+        let wethToDaiUpdated = daiReserveUpdated.div(wethReserveUpdated);
+        console.log(`pair update dai reserve ${daiReserveUpdated}`);
+        console.log(`pair update weth reserve ${wethReserveUpdated}`);
+        console.log(`dai/weth update price ${wethToDaiUpdated}`);
+        let wethToDaiInEtherUpdated = ethers2.utils.parseEther(wethToDaiUpdated.toString());
+
+        console.log(`a blackswan appeared, ETH went to ${wethToDaiUpdated}`);
+        console.log(`updatedWethToDaiInEther: ${wethToDaiInEtherUpdated}`);
+        await oracleContract.setUnderlyingPrice(CETH, wethToDaiInEtherUpdated);
+        expect(await oracleContract.getUnderlyingPrice(CETH)).to.equal(wethToDaiInEtherUpdated);
+
+        let [err3, liquidity3, shortfall3] = await comptrollerContract.getAccountLiquidity(borrowAccountAddress);
+        console.log("liquidity after price change: ", liquidity3.toString());
+        console.log("shortfall after price change: ", shortfall3.toString());
+
+        var repayBorrowAmount = ethBorrowAmount.div(100);
+        console.log(`repayAmount ${repayBorrowAmount}`);
+
+        let result = await liquidatorContract.liquidate(
+            borrowAccountAddress,
+            CETH,
+            CDAI,
             repayBorrowAmount,
             UNISWAP_FACTORY,
             {
@@ -272,16 +285,15 @@ describe("Liquidator", async () => {
             }
         );
 
-        console.log(`RESULT ${JSON.stringify(result, null, 4)}`);
-
         let txDone = await result.wait();
 
         console.log(`GAS USED ${txDone.gasUsed.toString()}`);
+        const strategyDaiBalance = await dai.balanceOf(liquidatorContract.address);
+        console.log(`liquidator dai balance: ${strategyDaiBalance.toString()}`);
+        expect(true).to.equal(strategyDaiBalance.gt(0));
     });
 
-
-    after(async () => {
-        // Give ganache some time to log the error
-        await new Promise(resolve => setTimeout(resolve, 10000));
+    it.skip('ETH-TOKEN', async () => {
+        
     });
 });

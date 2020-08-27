@@ -143,7 +143,8 @@ contract CompoundLiquidator is IUniswapV2Callee {
         // 3. Redeem collateral cToken for collateral
         uint collateralTokens = ICToken(data.cTokenCollateral).balanceOf(address(this));
 
-        ICToken(data.cTokenCollateral).redeem(collateralTokens);
+        uint res = ICToken(data.cTokenCollateral).redeem(collateralTokens);
+        require(res == 0, Utils.concat('reedem fail - errc ', Utils.uint2str(res)));
 
         address collateralTokenUnderlying;
         if (data.cTokenCollateral == CETH_ADDRESS) {

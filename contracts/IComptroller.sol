@@ -73,8 +73,10 @@ interface IComptroller {
 
     function getAccountLiquidity(address account) external view returns (uint, uint, uint);
 
+    function markets(address cTokenAddress) external view returns (bool, uint);
+
     // Impl
     function oracle() external view returns (address);
 
-    function _setPriceOracle(address newOracle) external returns (uint);    
+    function _setPriceOracle(address newOracle) external returns (uint);
 }

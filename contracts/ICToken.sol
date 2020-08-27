@@ -25,6 +25,7 @@ interface ICEther {
     // Comes from CToken, but cant do inheritance on interfaces so sticking here
     function balanceOf(address) external view returns (uint);
     function borrowBalanceCurrent(address account) external returns (uint);
+    function getAccountSnapshot(address account) external view returns (uint, uint, uint, uint);
 }
 
 interface ICERC20 {
