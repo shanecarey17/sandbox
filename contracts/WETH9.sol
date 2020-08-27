@@ -17,4 +17,6 @@ interface WETH9 {
     function transfer(address dst, uint wad) external returns (bool);
 
     function transferFrom(address src, address dst, uint wad) external;
+
+    function balanceOf(address _owner) external view returns (uint balance);
 }
