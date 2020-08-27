@@ -396,8 +396,8 @@ describe("Liquidator", async () => {
         console.log("liquidity after price change: ", liquidity3.toString());
         console.log("shortfall after price change: ", shortfall3.toString());
 
-        const initialEthBalance = await ethers.provider.getBalance(borrowAccountAddress);
-        console.log(`borrowing account initial eth: ${initialEthBalance}`);
+        const initialWethBalance = await weth.connect(liquidatorContract.address).balanceOf(liquidatorContract.address);
+        console.log(`initial weth balance: ${initialWethBalance}`);
 
         var repayBorrowAmount = daiBorrowAmount.div(100);
         console.log(`repayAmount ${repayBorrowAmount}`);
@@ -415,8 +415,8 @@ describe("Liquidator", async () => {
 
         let txDone = await result.wait();
 
-        const finalEthBalance = await ethers.provider.getBalance(borrowAccountAddress);
-        console.log(`borrowing account final eth: ${finalEthBalance}`);
-        expect(true).to.equal(finalEthBalance.sub(initialEthBalance).gt(0));
+        const finalWethBalance = await weth.connect(liquidatorContract.address).balanceOf(liquidatorContract.address);
+        console.log(`final weth balance: ${finalWethBalance}`);
+        expect(true).to.equal(finalWethBalance.gt(0));
     });
 });

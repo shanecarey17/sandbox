@@ -149,7 +149,7 @@ contract CompoundLiquidator is IUniswapV2Callee {
         if (data.cTokenCollateral == CETH_ADDRESS) {
             // Uniswap needs us to have a balance of WETH to trade out
             // We can just swap our whole balance to WETH here, since we withdraw by ERC20 in other cases
-            WETH9(WETH_ADDRESS).deposit.value(address(this).balance)();
+            WETH9(WETH_ADDRESS).deposit.value(Utils.getBalance(address(this)))();
             collateralTokenUnderlying = WETH_ADDRESS;
         } else {
             collateralTokenUnderlying = ICToken(data.cTokenCollateral).underlying();
