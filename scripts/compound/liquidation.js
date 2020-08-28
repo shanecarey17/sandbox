@@ -39,7 +39,17 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
         repayBorrowAmount
     );
 
-    console.log(result);
+    let gasEstimate = await liquidatorContractGlobal.estimateGas.liquidate( // callStatic = dry run
+        account,
+        borrowedMarket,
+        collateralMarket,
+        repayBorrowAmount,
+        {
+            gasLimit: 5 * 10**10
+        }
+    );
+
+    console.log(`Gas estimate: ${gasEstimate}`);
 
     process.exit();
 }
