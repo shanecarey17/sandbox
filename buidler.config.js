@@ -83,7 +83,19 @@ module.exports = {
         mainnet: {
             url: INFURA_URL,
             accounts: [
-                MAINNET_KEY
+                MAINNET_KEY,
+            ]
+        },
+        rinkeby: {
+            url: INFURA_URL.replace('mainnet', 'rinkeby'),
+            accounts: [
+                MAINNET_KEY,
+            ]
+        },
+        kovan: {
+            url: INFURA_URL.replace('mainnet', 'kovan'),
+            accounts: [
+                MAINNET_KEY,
             ]
         }
     },

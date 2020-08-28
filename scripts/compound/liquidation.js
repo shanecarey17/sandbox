@@ -3,7 +3,7 @@ const assert = require('assert');
 const fs = require('fs');
 const util = require('util');
 
-const ethers = require("@nomiclabs/buidler").ethers;
+const {ethers, deployments} = require("@nomiclabs/buidler");
 
 const wallet = require('./../wallet.js');
 const tokens = require('./../tokens.js');
@@ -29,6 +29,20 @@ let CLOSE_FACTOR_MANTISSA = undefined;
 let LIQUIDATION_INCENTIVE_MANTISSA = undefined;
 
 let comptrollerContractGlobal = undefined;
+let liquidatorContractGlobal = undefined;
+
+const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount) => {
+    let result = await liquidatorContractGlobal.callStatic.liquidate( // callStatic = dry run
+        account,
+        borrowedMarket,
+        collateralMarket,
+        repayBorrowAmount
+    );
+
+    console.log(result);
+
+    process.exit();
+}
 
 const doLiquidation = (accounts, markets) => {
     let ethToken = tokens.TokenFactory.getEthToken();
@@ -142,6 +156,11 @@ const doLiquidation = (accounts, markets) => {
         let profit = seizeAmountEth.sub(repayAmountEth);
         console.log(`++ PROFIT ${ethToken.formatAmount(profit)} USD`);
         console.log('');
+
+        if (profit.gt(0)) {
+            // TODO make sure we dont liquidate twice
+            let task = liquidateAccount(account.address, borrowedMarketData.address, suppliedMarketData.address, repayAmount);
+        }
     }
 }
 
@@ -399,6 +418,9 @@ const getMarkets = async (comptrollerContract, priceOracleContract) => {
         let [isListed, collateralFactor] = await comptrollerContract.markets(marketAddress);
 
         cTokenContract._data = new (function() {
+            this.address = cTokenContract.address;
+            this.contract = cTokenContract;
+
             this.token = token;
             this.underlyingToken = underlyingToken;
 
@@ -558,11 +580,28 @@ const getUniswapOracle = async () => {
     return uniswapAnchoredViewContract;
 }
 
+const getLiquidator = async () => {
+    const liqDeployment = await deployments.get("CompoundLiquidator");
+    liquidatorContractGlobal = await ethers.getContractAt("CompoundLiquidator", liqDeployment.address);
+    console.log(`LIQUIDATOR DEPLOYED @ ${liquidatorContractGlobal.address}`);
+    return liquidatorContractGlobal;
+}
+
 const run = async () => {
     process.on('unhandledRejection', (err) => {
         console.log(err);
         process.exit();
     });
+
+    let signers = await ethers.getSigners();
+    let operatingAccount = signers[0];
+    let operatingAddress = await operatingAccount.getAddress();
+    let operatorBalance = await ethers.provider.getBalance(operatingAddress);
+
+    console.log(`OPERATING ACCOUNT ${operatingAddress} BALANCE ${ethers.utils.formatEther(operatorBalance)}`); 
+
+    let liquidator = await getLiquidator();
+    assert(await liquidator.owner() == operatingAddress);
 
     await tokens.TokenFactory.init();
 

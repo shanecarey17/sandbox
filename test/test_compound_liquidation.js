@@ -1,4 +1,4 @@
-const { deployments } = require("@nomiclabs/buidler");
+const { deployments, ethers } = require("@nomiclabs/buidler");
 
 const expect = require("chai").expect;
 const legos = require('@studydefi/money-legos').legos;
@@ -162,7 +162,6 @@ describe("Liquidator", async () => {
             CUSDC,
             CDAI,
             repayBorrowAmount,
-            UNISWAP_FACTORY,
             {
                 gasLimit: 5 * 10**6, // estimate gas on ganache has bug
             }
@@ -292,7 +291,6 @@ describe("Liquidator", async () => {
             CETH,
             CDAI,
             repayBorrowAmount,
-            UNISWAP_FACTORY,
             {
                 gasLimit: 5 * 10**6, // estimate gas on ganache has bug
             }
@@ -424,7 +422,6 @@ describe("Liquidator", async () => {
             CDAI,
             CETH,
             repayBorrowAmount,
-            UNISWAP_FACTORY,
             {
                 gasLimit: 5 * 10**6, // estimate gas on ganache has bug
             }

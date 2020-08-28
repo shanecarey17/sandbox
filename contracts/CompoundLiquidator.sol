@@ -13,6 +13,7 @@ import "./Utils.sol";
 contract CompoundLiquidator is IUniswapV2Callee {
     address constant public WETH_ADDRESS = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
     address constant public CETH_ADDRESS = 0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5;
+    address constant public UNISWAP_FACTORY_ADDRESS = 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
 
     address public owner;
 
@@ -37,8 +38,7 @@ contract CompoundLiquidator is IUniswapV2Callee {
         address borrowAccount,
         address cTokenBorrowed,
         address cTokenCollateral,
-        uint256 repayBorrowAmount,
-        address uniswapFactory
+        uint256 repayBorrowAmount
     ) external returns (uint) {
         require(owner == msg.sender, "not owner");
         require(cTokenBorrowed != cTokenCollateral, "cTokenBorrowed and cTokenCollateral are the same");
@@ -46,8 +46,13 @@ contract CompoundLiquidator is IUniswapV2Callee {
         require(repayBorrowAmount > 0, "zero repayBorrowAmount");
 
         (address borrowedToken, address collateralToken) = getUnderlyings(cTokenBorrowed, cTokenCollateral);
-        address uniswapPair = IUniswapV2Factory(uniswapFactory).getPair(borrowedToken, collateralToken);
+        address uniswapPair = IUniswapV2Factory(UNISWAP_FACTORY_ADDRESS).getPair(borrowedToken, collateralToken);
         require(uniswapPair != address(0), "uniswap pair doesn't exist");
+
+        uint pairBorrowedAvailable = MyERC20(borrowedToken).balanceOf(uniswapPair);
+        if (pairBorrowedAvailable < repayBorrowAmount) {
+            repayBorrowAmount = pairBorrowedAvailable;
+        }
 
         (uint amount0Out, uint amount1Out, uint swapCollateralAmount) = getAmounts(uniswapPair, borrowedToken, repayBorrowAmount);
 
