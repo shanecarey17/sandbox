@@ -44,6 +44,14 @@ task('compoundCheckAccount', "Fetch account info for compound account")
 	await checkAccount(args.account);
     });
 
+task('createWallet', "Create a wallet and output private key")
+    .addParam('keyfile', 'file to save the private key of the created wallet')
+    .setAction(async (args) => {
+        const createWallet = require('./scripts/create_wallet.js');
+
+        await createWallet(args.keyfile);
+    });
+
 module.exports = {
     verbose: true,
     defaultNetwork: 'ganache',
