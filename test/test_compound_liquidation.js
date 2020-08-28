@@ -19,7 +19,7 @@ const DAI_WETH_PAIR = '0xA478c2975Ab1Ea89e8196811F51A7B7Ade33eB11';
 
 const COMPTROLLER_ADMIN = '0x6d903f6003cca6255D85CcA4D3B5E5146dC33925';
 
-const DAI_WHALE = "0x9eB7f2591ED42dEe9315b6e2AAF21bA85EA69F8C";
+const DAI_WHALE = "0x6dcb8492b5de636fd9e0a32413514647d00ef8d0";
 const ETH_WHALE = "0x742d35cc6634c0532925a3b844bc454e4438f44e";
 
 const WETH = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
@@ -54,6 +54,11 @@ describe("Liquidator", async () => {
         await signers[9].sendTransaction({
             to: COMPTROLLER_ADMIN,
             value: ethers2.utils.parseEther('0.1'),
+        });
+
+        await signers[9].sendTransaction({
+            to: DAI_WHALE,
+            value: ethers2.utils.parseEther('0.1')
         });
 
         let compAdmin = await ethers.provider.getSigner(COMPTROLLER_ADMIN);
