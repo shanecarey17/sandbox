@@ -162,6 +162,12 @@ contract CompoundLiquidator is IUniswapV2Callee {
         MyERC20(token).transfer(msg.sender, balance);
     }
 
+    function withdrawEth() external {
+        require(msg.sender == owner, "not owner");
+
+        msg.sender.send(Utils.getBalance(address(this)));
+    }
+
     function enterMarkets(address comptroller, address[] calldata cTokens) external returns (uint[] memory) {
         require(msg.sender == owner, "not owner");
         return IComptroller(comptroller).enterMarkets(cTokens);

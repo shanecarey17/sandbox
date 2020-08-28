@@ -434,4 +434,26 @@ describe("Liquidator", async () => {
         await liquidatorContract.connect(ownerAccount).withdraw(weth.address);
         expect(await weth.balanceOf(ownerAccountAddress)).to.equal(finalWethBalance);
     });
+    
+    it('WITHDRAW ETH', async () => {
+        let ethAmount = ethers2.utils.parseEther('1');
+
+        await ownerAccount.sendTransaction({
+            to: liquidatorContract.address,
+            value: ethAmount
+        });
+
+        let ownerBalance0 = await ownerAccount.getBalance();
+
+        let liqEthBalance = await ethers.provider.getBalance(liquidatorContract.address);
+        expect(liqEthBalance).to.equal(ethAmount);
+
+        await liquidatorContract.connect(ownerAccount).withdrawEth();
+
+        liqEthBalance = await ethers.provider.getBalance(liquidatorContract.address);
+        expect(liqEthBalance).to.equal(ethers2.utils.parseEther('0'));
+
+        let ownerBalance1 = await ownerAccount.getBalance();
+        expect(ownerBalance1.sub(ownerBalance0).gt(ethers2.utils.parseEther('0'))).to.equal(true);
+    });
 });
