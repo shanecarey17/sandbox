@@ -561,6 +561,11 @@ const getUniswapOracle = async () => {
 }
 
 const run = async () => {
+    process.on('unhandledRejection', (err) => {
+        console.log(err);
+        process.exit();
+    });
+
     await tokens.TokenFactory.init();
 
     console.log('READY LITTYQUIDATOR 1');
