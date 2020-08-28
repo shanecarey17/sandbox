@@ -61,7 +61,7 @@ describe("Liquidator", async () => {
         expect(await comptrollerContract.oracle()).to.equal(oracleContract.address);
     });
 
-    it('DAI-WETH', async () => {
+    it('DAI-USDC', async () => {
         let signers = await ethers.getSigners();
         const borrowingAccount = signers[1];
         const borrowAccountAddress = await borrowingAccount.getAddress();
@@ -174,7 +174,7 @@ describe("Liquidator", async () => {
         expect(await dai.balanceOf(ownerAccountAddress)).to.equal(strategyDaiBalance);
     });
 
-    it('DAI-ETH', async () => {
+    it('DAI-WETH', async () => {
         let signers = await ethers.getSigners();
         const borrowingAccount = signers[2];
         const borrowAccountAddress = await borrowingAccount.getAddress();
@@ -306,7 +306,7 @@ describe("Liquidator", async () => {
         expect(newOwnerDaiBalance.sub(prevOwnerDaiBalance)).to.equal(strategyDaiBalance);
     });
 
-    it('ETH-TOKEN', async () => {
+    it('WETH-DAI', async () => {
         let signers = await ethers.getSigners();
         const borrowingAccount = signers[3];
         const borrowAccountAddress = await borrowingAccount.getAddress();
