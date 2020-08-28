@@ -377,12 +377,10 @@ const getMarkets = async (comptrollerContract, priceOracleContract) => {
         let token = await tokens.TokenFactory.loadToken(cTokenContract.address);
 
         let underlyingToken;
-
-        try {
+        if (cTokenContract.address !== '0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5') {
             let underlying = await cTokenContract.underlying();
-
             underlyingToken = await tokens.TokenFactory.getTokenByAddress(underlying);
-        } catch (err) {
+        } else {
             underlyingToken = tokens.TokenFactory.getEthToken();
         }
 
