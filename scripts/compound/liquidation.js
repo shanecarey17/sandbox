@@ -31,6 +31,20 @@ let LIQUIDATION_INCENTIVE_MANTISSA = undefined;
 let comptrollerContractGlobal = undefined;
 let liquidatorContractGlobal = undefined;
 
+const slackURL = 'https://hooks.slack.com/services/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';
+
+const sendMessage = async (subject, message) => {
+    let data = {
+        username: 'LiquidatorBot',
+	text: message,
+        icon_emoji: ':bangbang',
+    };
+
+    await axios.post(slackURL, JSON.stringify(data));
+
+    console.log(`SENT MESSAGE: ${message}`);
+}
+
 const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount) => {
     let result = await liquidatorContractGlobal.callStatic.liquidate( // callStatic = dry run
         account,
@@ -55,7 +69,12 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 
     console.log(`Gas estimate: ${gasEstimate}`);
 
-    process.exit();
+    await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account}`);
+
+    console.log('GOODBYE');
+
+    //process.exit();
+    throw new Error('EXIT');
 }
 
 const doLiquidation = (accounts, markets) => {
@@ -178,6 +197,8 @@ const doLiquidation = (accounts, markets) => {
 
         if (profit.gt(liquidationGasCost)) {
             console.log('Found profitable liquidation opportunity');
+            console.log(constants.CONSOLE_GREEN, `LIQUIDATING ACCOUNT ${account.address}`);
+            // TODO make sure we dont liquidate twice
             let task = liquidateAccount(account.address, borrowedMarketData.address, suppliedMarketData.address, repayAmount);
         }
     }
@@ -607,8 +628,13 @@ const getLiquidator = async () => {
 }
 
 const run = async () => {
-    process.on('unhandledRejection', (err) => {
+    await sendMessage('LIQUIDATOR', 'starting...');
+
+    process.on('unhandledRejection', async (err) => {
         console.log(err);
+
+        await sendMessage('ERROR', `process exited\n ${err}`);
+
         process.exit();
     });
 
@@ -651,14 +677,11 @@ const run = async () => {
 
     // Start playing events from snapshot
     ethers.provider.resetEventsBlock(blockNumber + 1);
-}
 
-function main() {
-    try {
-        run();
-    } catch (e) {
-        throw e;
+    // Long running
+    while (true) {
+        await new Promise( resolve => setTimeout( resolve, 5000 ) );
     }
 }
 
-main();
+module.exports = run

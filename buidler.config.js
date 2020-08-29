@@ -6,8 +6,8 @@ const fs = require('fs');
 
 const MNEMONIC = fs.readFileSync('.secret').toString().trim();
 
-//const INFURA_URL = 'https://mainnet.infura.io/v3/e4aa52bf76a948ea92ae7772d299aef0'; // Chris
-const INFURA_URL = 'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d'; // Shane
+const INFURA_URL = 'https://mainnet.infura.io/v3/e4aa52bf76a948ea92ae7772d299aef0'; // Chris
+//const INFURA_URL = 'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d'; // Shane
 
 const MAINNET_KEY = fs.readFileSync('.mainnet.key').toString().trim();
 
@@ -50,6 +50,13 @@ task('createWallet', "Create a wallet and output private key")
         const createWallet = require('./scripts/create_wallet.js');
 
         await createWallet(args.keyfile);
+    });
+
+task('runLiquidator', "run the liquidator application")
+    .setAction(async (args) => {
+        const liquidator = require('./scripts/compound/liquidation.js');
+
+        await liquidator();
     });
 
 module.exports = {
