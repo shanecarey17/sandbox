@@ -91,7 +91,8 @@ module.exports = {
             url: INFURA_URL,
             accounts: [
                 MAINNET_KEY,
-            ]
+            ],
+            timeout: 30 * 1000, // infura is slow sometimes...
         },
         rinkeby: {
             url: INFURA_URL.replace('mainnet', 'rinkeby'),

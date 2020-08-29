@@ -70,11 +70,6 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
     console.log(`Gas estimate: ${gasEstimate}`);
 
     await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account}`);
-
-    console.log('GOODBYE');
-
-    //process.exit();
-    throw new Error('EXIT');
 }
 
 const doLiquidation = (accounts, markets) => {
@@ -86,6 +81,10 @@ const doLiquidation = (accounts, markets) => {
     console.log(` \nLiquidation Gas Cost: ${ethToken.formatAmount(liquidationGasCost)} USD \n`);
 
     for (let account of Object.values(accounts)) {
+        if (account.liquidated) {
+            continue; // Prevent double tap
+        }
+
         let accountConsoleLine = ''; // dont print anything until the account is interesting
 
         accountConsoleLine += `LIQUIDATION CANDIDATE ${account.address}` + '\n';
@@ -180,8 +179,6 @@ const doLiquidation = (accounts, markets) => {
 
         let repayAmount = repaySupply.gt(repayBorrow) ? repayBorrow : repaySupply; // borrowed underlying
 
-        console.log(`DEV REPAY SUPPLY ${repaySupply.toString()} ${borrowedMarketData.underlyingToken.formatAmount(repaySupply)} ${suppliedMarketData.underlyingToken.formatAmount(balanceSupplied)}`);
-
         let repayAmountEth = repayAmount.mul(priceBorrowed).div(constants.TEN.pow(borrowedMarketData.underlyingToken.decimals));
 
         let seizeAmountEth = repayAmountEth.mul(LIQUIDATION_INCENTIVE_MANTISSA).div(EXPONENT);
@@ -196,10 +193,11 @@ const doLiquidation = (accounts, markets) => {
         console.log('');
 
         if (profit.gt(liquidationGasCost)) {
-            console.log('Found profitable liquidation opportunity');
             console.log(constants.CONSOLE_GREEN, `LIQUIDATING ACCOUNT ${account.address}`);
-            // TODO make sure we dont liquidate twice
-            let task = liquidateAccount(account.address, borrowedMarketData.address, suppliedMarketData.address, repayAmount);
+            liquidateAccount(account.address, borrowedMarketData.address, suppliedMarketData.address, repayAmount).then(() => {
+                // Nothing to do yet
+            });
+            account.liquidated = true;
         }
     }
 }
@@ -246,7 +244,7 @@ const listenPricesUniswap = (markets, uniswapOracle) => {
     });
 
     uniswapOracle.on('AnchorPriceUpdated', (symbol, anchorPrice, oldTimestamp, newTimestamp) => {
-
+        // Nothing to do here, yet
     });
 }
 
@@ -507,7 +505,7 @@ const getAccounts = async (markets, blockNumber) => {
     let url = `https://api.compound.finance/api/v2/account`;
 
     let reqData = {
-        min_borrow_value_in_eth: { value: '0.1' },
+        min_borrow_value_in_eth: { value: '0.2' },
         block_number: blockNumber,
         page_size: 2500
     }
@@ -569,6 +567,7 @@ const getAccounts = async (markets, blockNumber) => {
                     .mul(EXPONENT).div(exchangeRate),
                 borrows: underlying.parseAmount(acctToken.borrow_balance_underlying.value),
                 borrowIndex: constants.ZERO, // TODO calculate this from interest
+                liquidated: false, // set after liquidation occurs
             };
 
             accountsMap[accountAddress][marketAddress] = tracker;
