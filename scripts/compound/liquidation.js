@@ -36,18 +36,22 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
         account,
         borrowedMarket,
         collateralMarket,
-        repayBorrowAmount
-    );
-
-    let gasEstimate = await liquidatorContractGlobal.estimateGas.liquidate( // callStatic = dry run
-        account,
-        borrowedMarket,
-        collateralMarket,
         repayBorrowAmount,
         {
-            gasLimit: 5 * 10**10
+            "gasPrice" : ethers.utils.parseUnits(constants.LIQUIDATION_GAS_PRICE, 'gwei'),
+            "gasLimit": constants.LIQUIDATION_GAS_LIMIT.toNumber(),
         }
     );
+
+    // let gasEstimate = await liquidatorContractGlobal.estimateGas.liquidate( // callStatic = dry run
+    //     account,
+    //     borrowedMarket,
+    //     collateralMarket,
+    //     repayBorrowAmount,
+    //     {
+    //         gasLimit: 5 * 10**10
+    //     }
+    // );
 
     console.log(`Gas estimate: ${gasEstimate}`);
 
@@ -56,6 +60,11 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 
 const doLiquidation = (accounts, markets) => {
     let ethToken = tokens.TokenFactory.getEthToken();
+    const liquidationGasCost = ethers.utils.parseEther((Math.ceil(ethToken.price) + ''))
+        .mul(constants.LIQUIDATION_GAS_LIMIT)
+        .mul(ethers.utils.parseUnits(constants.LIQUIDATION_GAS_PRICE, 'gwei'))
+        .div(EXPONENT);
+    console.log(` \nLiquidation Gas Cost: ${ethToken.formatAmount(liquidationGasCost)} USD \n`);
 
     for (let account of Object.values(accounts)) {
         let accountConsoleLine = ''; // dont print anything until the account is interesting
@@ -167,8 +176,8 @@ const doLiquidation = (accounts, markets) => {
         console.log(`++ PROFIT ${ethToken.formatAmount(profit)} USD`);
         console.log('');
 
-        if (profit.gt(0)) {
-            // TODO make sure we dont liquidate twice
+        if (profit.gt(liquidationGasCost)) {
+            console.log('Found profitable liquidation opportunity');
             let task = liquidateAccount(account.address, borrowedMarketData.address, suppliedMarketData.address, repayAmount);
         }
     }

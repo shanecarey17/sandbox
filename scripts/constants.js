@@ -33,4 +33,8 @@ module.exports = {
     KYBER_PROXY_ADDRESS: '0x818E6FECD516Ecc3849DAf6845e3EC868087B755',
 
     SERVER_PORT: 8080,
+
+    LIQUIDATION_GAS_PRICE: '100', // in gwei
+
+    LIQUIDATION_GAS_LIMIT: ethers.BigNumber.from(10**6),
 }
