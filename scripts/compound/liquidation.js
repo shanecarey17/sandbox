@@ -226,7 +226,7 @@ const listenPricesv1 = (markets, v1Oracle) => {
             ${requestedPrice.toString()} requestedPrice
             ${newPrice.toString()} newPrice`);
 
-        doLiquidation(accounts, markets);
+        //doLiquidation(accounts, markets);
     });
 }
 
@@ -280,7 +280,7 @@ const listenMarkets = (accounts, markets) => {
                 minterData.tokens = minterData.tokens.add(mintTokens);
             }
 
-            doLiquidation(accounts, markets);
+            //doLiquidation(accounts, markets);
         });
 
         cTokenContract.on('Redeem', (redeemer, redeemAmount, redeemTokens) => {
@@ -294,7 +294,7 @@ const listenMarkets = (accounts, markets) => {
                 ${cTokenContract._data.underlyingToken.formatAmount(redeemTokens)} ${cTokenContract._data.underlyingToken.symbol} returned`);
 
             // Do this after both Transfer and Redeem run
-            doLiquidation(accounts, markets);
+            //doLiquidation(accounts, markets);
         });
 
         cTokenContract.on('Borrow', (borrower, borrowAmount, accountBorrows, totalBorrows) => {
@@ -314,7 +314,7 @@ const listenMarkets = (accounts, markets) => {
                 borrowerData.borrowIndex = cTokenContract._data.borrowIndex;
             }
 
-            doLiquidation(accounts, markets);
+            //doLiquidation(accounts, markets);
         });
 
         cTokenContract.on('RepayBorrow', (payer, borrower, repayAmount, accountBorrows, totalBorrows) => {
@@ -333,7 +333,7 @@ const listenMarkets = (accounts, markets) => {
                 borrowerData.borrows = accountBorrows;;
             }
 
-            doLiquidation(accounts, markets);
+            //doLiquidation(accounts, markets);
         });
 
         cTokenContract.on('LiquidateBorrow', (liquidator, borrower, repayAmount, cTokenCollateral, seizeTokens) => {
@@ -352,7 +352,7 @@ const listenMarkets = (accounts, markets) => {
                 borrowerData.borrows = borrowerData.borrows.sub(repayAmount);
             }
 
-            doLiquidation(accounts, markets);
+            //doLiquidation(accounts, markets);
         });
 
         cTokenContract.on('Transfer', (src, dst, amount) => {
@@ -391,7 +391,7 @@ const listenMarkets = (accounts, markets) => {
                 ${fmtAddr(dst)} ${cTokenContract._data.token.formatAmount(dstBalance)} ${cTokenContract._data.token.symbol}`);
 
             if (isRedeem) {
-                doLiquidation(accounts, markets);
+                //doLiquidation(accounts, markets);
             }
         });
 
@@ -405,7 +405,7 @@ const listenMarkets = (accounts, markets) => {
         //     cTokenContract._data.totalReserves = totalReservesNew;
         //     cTokenContract._data.totalCash = cTokenContract._data.totalCash.add(amountAdded);
         //     
-        //     doLiquidation(accounts, markets);
+        //     //doLiquidation(accounts, markets);
         // });
 
         cTokenContract.on('ReservesReduced', (admin, amountReduced, totalReservesNew) => {
@@ -416,7 +416,7 @@ const listenMarkets = (accounts, markets) => {
             cTokenContract._data.totalReserves = totalReservesNew;
             cTokenContract._data.totalCash = cTokenContract._data.totalCash.sub(amountReduced);
 
-            doLiquidation(accounts, markets);
+            //doLiquidation(accounts, markets);
         });
     }
 }
@@ -676,6 +676,12 @@ const run = async () => {
 
     // Start playing events from snapshot
     ethers.provider.resetEventsBlock(blockNumber + 1);
+
+    ethers.provider.on('didPoll', () => {
+        console.log('POLL');
+
+        doLiquidation(accounts, markets); // after the block is processed
+    });
 
     // Long running
     while (true) {
