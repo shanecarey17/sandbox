@@ -17,13 +17,10 @@ const CTOKEN_ABI = JSON.parse(fs.readFileSync('abi/compound/ctoken.json'));
 const PRICE_ORACLE_ADDRESS = '0xDDc46a3B076aec7ab3Fc37420A8eDd2959764Ec4';
 const PRICE_ORACLE_ABI = JSON.parse(fs.readFileSync('abi/compound/priceoracle.json'));
 
-const V1_ORACLE_ADDRESS = '0x02557a5E05DeFeFFD4cAe6D83eA3d173B272c904';
-const V1_ORACLE_ABI = JSON.parse(fs.readFileSync('abi/compound/v1oracle.json'));
-
 const UNISWAP_ANCHORED_VIEW_ADDRESS = '0x9B8Eb8b3d6e2e0Db36F41455185FEF7049a35CaE';
 const UNISWAP_ANCHORED_VIEW_ABI = JSON.parse(fs.readFileSync('abi/compound/uniswapanchoredview.json'));
 
-const EXPONENT = constants.TEN.pow(18); // Compound math
+const EXPONENT = constants.TEN.pow(18); // Compound math expScale
 
 let CLOSE_FACTOR_MANTISSA = undefined;
 let LIQUIDATION_INCENTIVE_MANTISSA = undefined;
@@ -202,34 +199,6 @@ const doLiquidation = (accounts, markets) => {
     }
 }
 
-const listenPricesv1 = (markets, v1Oracle) => {
-    v1Oracle.on('PricePosted', (asset, previousPrice, requestedPrice, newPrice) => {
-        let token = tokens.TokenFactory.getTokenByAddress(asset);
-
-        if (token === undefined) {
-            console.log(`PRICE POSTED FOR UNKNOWN UNDERLYING ${asset} ${newPrice.toString()}`);
-            return;
-        }
-
-        for (let market of Object.values(markets)) {
-            if (market._data.underlyingToken !== token) {
-                continue;
-            }
-
-            market._data.underlyingPrice = newPrice.div(constants.TEN.pow(18 - token.decimals));
-
-            break;
-        }
-
-        console.log(`[${token.symbol}] PRICE_POSTED
-            ${previousPrice.toString()} previousPrice
-            ${requestedPrice.toString()} requestedPrice
-            ${newPrice.toString()} newPrice`);
-
-        //doLiquidation(accounts, markets);
-    });
-}
-
 const listenPricesUniswap = (markets, uniswapOracle) => {
     uniswapOracle.on('PriceUpdated', (symbol, price) => {
         for (let market of Object.values(markets)) {
@@ -279,8 +248,6 @@ const listenMarkets = (accounts, markets) => {
             if (minterData !== undefined) {
                 minterData.tokens = minterData.tokens.add(mintTokens);
             }
-
-            //doLiquidation(accounts, markets);
         });
 
         cTokenContract.on('Redeem', (redeemer, redeemAmount, redeemTokens) => {
@@ -290,11 +257,8 @@ const listenMarkets = (accounts, markets) => {
             cTokenContract._data.totalCash = cTokenContract._data.totalCash.sub(redeemAmount);
 
             console.log(`[${cTokenContract._data.underlyingToken.symbol}] REDEEM - ${redeemer} 
-                ${cTokenContract._data.token.formatAmount(redeemAmount)} ${cTokenContract._data.token.symbol} redeemed
-                ${cTokenContract._data.underlyingToken.formatAmount(redeemTokens)} ${cTokenContract._data.underlyingToken.symbol} returned`);
-
-            // Do this after both Transfer and Redeem run
-            //doLiquidation(accounts, markets);
+                ${cTokenContract._data.token.formatAmount(redeemTokens)} ${cTokenContract._data.token.symbol} redeemed
+                ${cTokenContract._data.underlyingToken.formatAmount(redeemAmount)} ${cTokenContract._data.underlyingToken.symbol} returned`);
         });
 
         cTokenContract.on('Borrow', (borrower, borrowAmount, accountBorrows, totalBorrows) => {
@@ -313,8 +277,6 @@ const listenMarkets = (accounts, markets) => {
                 borrowerData.borrows = accountBorrows;
                 borrowerData.borrowIndex = cTokenContract._data.borrowIndex;
             }
-
-            //doLiquidation(accounts, markets);
         });
 
         cTokenContract.on('RepayBorrow', (payer, borrower, repayAmount, accountBorrows, totalBorrows) => {
@@ -332,8 +294,6 @@ const listenMarkets = (accounts, markets) => {
             if (borrowerData !== undefined) {
                 borrowerData.borrows = accountBorrows;;
             }
-
-            //doLiquidation(accounts, markets);
         });
 
         cTokenContract.on('LiquidateBorrow', (liquidator, borrower, repayAmount, cTokenCollateral, seizeTokens) => {
@@ -351,8 +311,6 @@ const listenMarkets = (accounts, markets) => {
             if (borrowerData !== undefined) {
                 borrowerData.borrows = borrowerData.borrows.sub(repayAmount);
             }
-
-            //doLiquidation(accounts, markets);
         });
 
         cTokenContract.on('Transfer', (src, dst, amount) => {
@@ -360,21 +318,21 @@ const listenMarkets = (accounts, markets) => {
             let srcTracker = src in accounts ? accounts[src][cTokenContract.address] : undefined;
             let dstTracker = dst in accounts ? accounts[dst][cTokenContract.address] : undefined;
 
-            let srcBalance, dstBalance;
-
-            let isRedeem = true; // Only want to liquidate on redeem
+            let srcBalance = constants.ZERO;
+            let dstBalance = constants.ZERO;
 
             if (src == cTokenContract.address) {
-                srcBalance = cTokenContract._data.totalSupply = cTokenContract._data.totalSupply.sub(amount);
+                // Mint - add tokens to total supply
+                srcBalance = cTokenContract._data.totalSupply = cTokenContract._data.totalSupply.add(amount);
             } else {
-                redeem = false;
                 if (srcTracker !== undefined) {
                     srcBalance = srcTracker.tokens = srcTracker.tokens.sub(amount);
                 }
             }
 
              if (dst == cTokenContract.address) {
-                dstBalance = cTokenContract._data.totalSupply = cTokenContract._data.totalSupply.add(amount);
+                // Redeem - remove tokens from total supply
+                dstBalance = cTokenContract._data.totalSupply = cTokenContract._data.totalSupply.sub(amount);
             } else {
                 if (dstTracker !== undefined) {
                     dstBalance = dstTracker.tokens = dstTracker.tokens.add(amount);
@@ -383,16 +341,10 @@ const listenMarkets = (accounts, markets) => {
 
             let underlying = cTokenContract._data.underlyingToken;
 
-            let fmtAddr = (addr) => addr == cTokenContract.address ? 'SUPPLY' : addr;
+            let fmtAddr = (addr) => addr == cTokenContract.address ? 'MARKET' : addr;
 
             console.log(`[${cTokenContract._data.underlyingToken.symbol}] TRANSFER ${fmtAddr(src)} => ${fmtAddr(dst)}
-                ${cTokenContract._data.token.formatAmount(amount)} ${cTokenContract._data.token.symbol} transferred
-                ${fmtAddr(src)} ${cTokenContract._data.token.formatAmount(srcBalance)} ${cTokenContract._data.token.symbol}
-                ${fmtAddr(dst)} ${cTokenContract._data.token.formatAmount(dstBalance)} ${cTokenContract._data.token.symbol}`);
-
-            if (isRedeem) {
-                //doLiquidation(accounts, markets);
-            }
+                ${cTokenContract._data.token.formatAmount(amount)} ${cTokenContract._data.token.symbol} transferred`);
         });
 
         // This doesnt exist?
@@ -415,8 +367,6 @@ const listenMarkets = (accounts, markets) => {
 
             cTokenContract._data.totalReserves = totalReservesNew;
             cTokenContract._data.totalCash = cTokenContract._data.totalCash.sub(amountReduced);
-
-            //doLiquidation(accounts, markets);
         });
     }
 }
@@ -664,11 +614,7 @@ const run = async () => {
     // Fetch accounts from REST service
     let accounts = await getAccounts(markets, blockNumber);
 
-    console.log('ACCCOUNTS', Object.keys(accounts).length);
-
     doLiquidation(accounts, markets); // once at start
-
-    let ethToken = tokens.TokenFactory.getEthToken();
     
     // Don't interrupt the event loop until block num is reset
     listenPricesUniswap(markets, uniswapOracle);
