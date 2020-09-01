@@ -11,9 +11,10 @@ import "./IComptroller.sol";
 import "./Utils.sol";
 
 contract CompoundLiquidator is IUniswapV2Callee {
-    address constant public WETH_ADDRESS = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
-    address constant public CETH_ADDRESS = 0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5;
     address constant public UNISWAP_FACTORY_ADDRESS = 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
+    address constant public CETH_ADDRESS            = 0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5;
+    address constant public WETH_ADDRESS            = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+    address constant public DAI_ADDRESS             = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
 
     address public owner;
 
@@ -41,20 +42,20 @@ contract CompoundLiquidator is IUniswapV2Callee {
         uint256 repayBorrowAmount
     ) external returns (uint) {
         require(owner == msg.sender, "not owner");
-        require(cTokenBorrowed != cTokenCollateral, "cTokenBorrowed and cTokenCollateral are the same");
+        //require(cTokenBorrowed != cTokenCollateral, "cTokenBorrowed and cTokenCollateral are the same");
         require(ICToken(cTokenBorrowed).comptroller() == ICToken(cTokenCollateral).comptroller(), "cTokens have different comptrollers");
         require(repayBorrowAmount > 0, "zero repayBorrowAmount");
 
         (address borrowedToken, address collateralToken) = getUnderlyings(cTokenBorrowed, cTokenCollateral);
-        address uniswapPair = IUniswapV2Factory(UNISWAP_FACTORY_ADDRESS).getPair(borrowedToken, collateralToken);
-        require(uniswapPair != address(0), "uniswap pair doesn't exist");
+
+        address uniswapPair = getUniswapPair(borrowedToken, collateralToken);
 
         uint pairBorrowedAvailable = MyERC20(borrowedToken).balanceOf(uniswapPair);
         if (pairBorrowedAvailable < repayBorrowAmount) {
             repayBorrowAmount = pairBorrowedAvailable;
         }
 
-        (uint amount0Out, uint amount1Out, uint swapCollateralAmount) = getAmounts(uniswapPair, borrowedToken, repayBorrowAmount);
+        (uint amount0Out, uint amount1Out, uint swapCollateralAmount) = getAmounts(uniswapPair, borrowedToken, repayBorrowAmount, collateralToken);
 
         Data memory data = Data({
             cTokenBorrowed: cTokenBorrowed,
@@ -69,11 +70,14 @@ contract CompoundLiquidator is IUniswapV2Callee {
 
         // 1. Initiate flash loan (either amount0Out or amount1Out will be zero)
         IUniswapV2Pair(uniswapPair).swap(amount0Out, amount1Out, address(this), abi.encode(data));
+
         uint endBalance = MyERC20(collateralToken).balanceOf(address(this));
 
         if (endBalance < startBalance) {
-            require(false, "end balance less than start balance");
+            require(false, "nope");
         }
+
+        return endBalance - startBalance;
     }
 
     function getUnderlyings(address cTokenBorrowed, address cTokenCollateral) internal 
@@ -92,25 +96,47 @@ contract CompoundLiquidator is IUniswapV2Callee {
         }
     }
 
-    function getAmounts(address uniswapPair, address tokenOut, uint amountOut) internal 
+    function getUniswapPair(address borrowedToken, address collateralToken) internal returns (address) {
+        // If tokens are the same, use uniswap only for flash loan
+        if (borrowedToken == collateralToken) {
+            if (borrowedToken == WETH_ADDRESS) {
+                collateralToken = DAI_ADDRESS;
+            } else {
+                collateralToken = WETH_ADDRESS;
+            }
+        }
+
+        address uniswapPair = IUniswapV2Factory(UNISWAP_FACTORY_ADDRESS).getPair(borrowedToken, collateralToken);
+        require(uniswapPair != address(0), "no pair");
+
+        // ensure oustanding balances are accounted for
+        IUniswapV2Pair(uniswapPair).sync();
+
+        return uniswapPair;
+    }
+
+    function getAmounts(address uniswapPair, address tokenOut, uint amountOut, address tokenIn) internal 
     returns (uint amount0Out, uint amount1Out, uint amountIn) {
         address pairToken0 = IUniswapV2Pair(uniswapPair).token0();
         address pairToken1 = IUniswapV2Pair(uniswapPair).token1();
+
         // amount out
         amount0Out = tokenOut == pairToken0 ? amountOut : 0;
         amount1Out = tokenOut == pairToken1 ? amountOut : 0;
-        // amount in
-        (uint reserve0, uint reserve1, uint blockTs) = IUniswapV2Pair(uniswapPair).getReserves();
-        uint reserveOut = tokenOut == pairToken0 ? reserve0 : reserve1;
-        uint reserveIn = tokenOut == pairToken0 ? reserve1 : reserve0;
-        amountIn = getAmountIn(amountOut, reserveIn, reserveOut);
-    }
 
-    // Stolen from uniswap v2 library
-    function getAmountIn(uint amountOut, uint reserveIn, uint reserveOut) internal pure returns (uint amountIn) {
-        uint numerator = reserveIn * amountOut * 1000;
-        uint denominator = (reserveOut - amountOut) * 997;
-        amountIn = (numerator / denominator) + 1;
+        // amount in
+	(uint reserve0, uint reserve1, uint blockTs) = IUniswapV2Pair(uniswapPair).getReserves();
+
+	uint reserveOut  = tokenOut == pairToken0 ? reserve0 : reserve1;
+	uint reserveIn   = tokenOut == pairToken0 ? reserve1 : reserve0;
+
+        if (tokenOut == tokenIn) {
+            amountIn         = (amountOut * 1000 / 997) + 1;
+        } else {
+	    uint numerator   = reserveIn * amountOut * 1000;
+	    uint denominator = (reserveOut - amountOut) * 997;
+	    amountIn         = (numerator / denominator) + 1;
+        }
     }
 
     function uniswapV2Call(
@@ -119,8 +145,9 @@ contract CompoundLiquidator is IUniswapV2Callee {
         uint amount1, 
         bytes memory _data
     ) public override {
-        Data memory data = abi.decode(_data, (Data));
         require(address(this) == sender, "sender needs to be liquidator");
+
+        Data memory data = abi.decode(_data, (Data));
 
         // 2. Repay borrowed loan and receive collateral
         if (data.cTokenBorrowed == CETH_ADDRESS) {
@@ -155,6 +182,17 @@ contract CompoundLiquidator is IUniswapV2Callee {
             collateralTokenUnderlying = ICToken(data.cTokenCollateral).underlying();
         }
 
+        //require(false, Utils.uint2str(data.swapCollateralAmount));
+        //require(false, Utils.uint2str(MyERC20(collateralTokenUnderlying).balanceOf(address(this))));
+/*
+        require(false, Utils.concat(
+            Utils.uint2str(data.swapCollateralAmount),
+            Utils.concat(
+                " ",
+                Utils.uint2str(MyERC20(collateralTokenUnderlying).balanceOf(address(this)))
+            )
+        ));
+*/
         // 4. Now the flash loan can go through because we have a balance of collateral token to swap for our borrowed tokens
         MyERC20(collateralTokenUnderlying).transfer(data.uniswapPair, data.swapCollateralAmount);
     }
