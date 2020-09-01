@@ -42,7 +42,14 @@ const sendMessage = async (subject, message) => {
     console.log(`SENT MESSAGE: ${message}`);
 }
 
-const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount) => {
+const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, shortfallEth) => {
+    let comptrollerContract = await getComptroller();
+    let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(account);
+
+    let ethToken = tokens.TokenFactory.getEthToken();
+    let color = shortfallEth.eq(shortfall) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
+    console.log(color, `ACCOUNT ${account.address} SHORTFALL EXPECTED ${ethToken.formatAmount(shortfallEth)} ACTUAL ${ethToken.formatAmount(shortfall)}`);
+
     let result = await liquidatorContractGlobal.callStatic.liquidate( // callStatic = dry run
         account,
         borrowedMarket,
@@ -191,7 +198,7 @@ const doLiquidation = (accounts, markets) => {
 
         if (profit.gt(liquidationGasCost)) {
             console.log(constants.CONSOLE_GREEN, `LIQUIDATING ACCOUNT ${account.address}`);
-            liquidateAccount(account.address, borrowedMarketData.address, suppliedMarketData.address, repayAmount).then(() => {
+            liquidateAccount(account.address, borrowedMarketData.address, suppliedMarketData.address, repayAmount, shortfallEth).then(() => {
                 // Nothing to do yet
             });
             account.liquidated = true;
@@ -202,13 +209,16 @@ const doLiquidation = (accounts, markets) => {
 const listenPricesUniswap = (markets, uniswapOracle) => {
     uniswapOracle.on('PriceUpdated', (symbol, price) => {
         for (let market of Object.values(markets)) {
-            if (market._data.underlyingToken.symbol == symbol) {
-                market._data.underlyingPrice = price;
-
+            if (market._data.underlyingToken.symbol === symbol) {
+                // need to transform the price we receive to mirror
+                // https://github.com/compound-finance/open-oracle/blob/master/contracts/Uniswap/UniswapAnchoredView.sol#L135
+                market._data.underlyingPrice = price.mul(constants.TEN.pow(30))
+                    .div(market._data.underlyingToken.decimals);
                 console.log(`[${symbol}] PRICE_UPDATED ${price.toString()}`);
 
                 break;
             }
+            throw new Error("Could not find market for symbol " + symbol);
         }
     });
 
