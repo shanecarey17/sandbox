@@ -675,6 +675,8 @@ module.exports = async () => {
     try {
         await run();
     } catch (err) {
-        await sendMessage('ERROR', 'process exited\n ${err}');
+        await sendMessage(`ERROR', 'process exited\n ${err}`);
+        
+        console.log(err);
     }
 }
