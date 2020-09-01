@@ -53,6 +53,9 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
     let ethToken = tokens.TokenFactory.getEthToken();
     let color = shortfallEth.eq(shortfall) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
     console.log(color, `ACCOUNT ${account} SHORTFALL EXPECTED ${ethToken.formatAmount(shortfallEth)} ACTUAL ${ethToken.formatAmount(shortfall)}`);
+    if (shortfall.eq(0)) {
+        throw new Error(`expected shortfall when comptroller shows none! ${account}`);
+    }
 
     let result = await liquidatorContractGlobal.callStatic.liquidate( // callStatic = dry run
         account,
@@ -254,7 +257,6 @@ const listenMarkets = (accounts, markets) => {
             // Followed by Transfer event
 
             cTokenContract._data.totalCash = cTokenContract._data.totalCash.add(mintAmount);
-            cTokenContract._data.totalSupply = cTokenContract._data.totalSupply.add(mintTokens);
 
             console.log(`[${cTokenContract._data.underlyingToken.symbol}] MINT - ${minter} 
                 ${cTokenContract._data.underlyingToken.formatAmount(mintAmount)} ${cTokenContract._data.underlyingToken.symbol} deposited
@@ -602,14 +604,6 @@ const updateGasPrice = async () => {
 const run = async () => {
     await sendMessage('LIQUIDATOR', 'starting...');
 
-    process.on('unhandledRejection', async (err) => {
-        console.log(err);
-
-        await sendMessage('ERROR', `process exited\n ${err}`);
-
-        process.exit();
-    });
-
     let signers = await ethers.getSigners();
     let operatingAccount = signers[0];
     let operatingAddress = await operatingAccount.getAddress();
@@ -669,4 +663,18 @@ const run = async () => {
     }
 }
 
-module.exports = run
+module.exports = async () => {
+    process.on('unhandledRejection', async (err) => {
+        console.log(err);
+
+        await sendMessage('ERROR', `process exited\n ${err}`);
+
+        process.exit();
+    });
+
+    try {
+        await run();
+    } catch (err) {
+        await sendMessage('ERROR', 'process exited\n ${err}');
+    }
+}
