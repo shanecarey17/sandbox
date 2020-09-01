@@ -47,12 +47,12 @@ const sendMessage = async (subject, message) => {
 }
 
 const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, shortfallEth) => {
-    let comptrollerContract = await getComptroller();
+    let comptrollerContract = comptrollerContractGlobal;
     let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(account);
 
     let ethToken = tokens.TokenFactory.getEthToken();
     let color = shortfallEth.eq(shortfall) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
-    console.log(color, `ACCOUNT ${account.address} SHORTFALL EXPECTED ${ethToken.formatAmount(shortfallEth)} ACTUAL ${ethToken.formatAmount(shortfall)}`);
+    console.log(color, `ACCOUNT ${account} SHORTFALL EXPECTED ${ethToken.formatAmount(shortfallEth)} ACTUAL ${ethToken.formatAmount(shortfall)}`);
 
     let result = await liquidatorContractGlobal.callStatic.liquidate( // callStatic = dry run
         account,
@@ -67,28 +67,16 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 
     console.log(`LIQUIDATION RESULT ${result}`);
 
-    // let gasEstimate = await liquidatorContractGlobal.estimateGas.liquidate( // callStatic = dry run
-    //     account,
-    //     borrowedMarket,
-    //     collateralMarket,
-    //     repayBorrowAmount,
-    //     {
-    //         gasLimit: 5 * 10**10
-    //     }
-    // );
-
-    //console.log(`Gas estimate: ${gasEstimate}`);
-
     await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account}`);
 }
 
 const doLiquidation = (accounts, markets) => {
     let ethToken = tokens.TokenFactory.getEthToken();
+
     const liquidationGasCost = ethers.utils.parseEther((Math.ceil(ethToken.price) + ''))
         .mul(constants.LIQUIDATION_GAS_LIMIT)
         .mul(gasPriceGlobal)
         .div(EXPONENT);
-    console.log(` \nLiquidation Gas Cost: ${ethToken.formatAmount(liquidationGasCost)} USD \n`);
 
     for (let account of Object.values(accounts)) {
         if (account.liquidated) {
@@ -198,34 +186,48 @@ const doLiquidation = (accounts, markets) => {
         let consoleLine = `++ LIQUIDATE ${borrowedMarketData.underlyingToken.formatAmount(repayAmount)} ${borrowedMarketData.underlyingToken.symbol} `
         console.log(consoleLine + `=> SEIZE ${suppliedMarketData.underlyingToken.formatAmount(seizeAmount)} ${suppliedMarketData.underlyingToken.symbol}`);
 
-        let profit = seizeAmountEth.sub(repayAmountEth);
-        console.log(`++ PROFIT ${ethToken.formatAmount(profit)} USD`);
-        console.log('');
+        let revenue = seizeAmountEth.sub(repayAmountEth);
+        console.log(`++ REVENUE  ${ethToken.formatAmount(revenue)} USD`);
+        console.log(`++ GAS COST ${ethToken.formatAmount(liquidationGasCost)} USD`);
+        let profit = revenue.sub(liquidationGasCost);
+        let profitColor = profit.gt(0) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
+        console.log(profitColor, `++ PROFIT ${ethToken.formatAmount(profit)} USD`);
 
-        if (profit.gt(liquidationGasCost)) {
+        if (profit.gt(0)) {
             console.log(constants.CONSOLE_GREEN, `LIQUIDATING ACCOUNT ${account.address}`);
             liquidateAccount(account.address, borrowedMarketData.address, suppliedMarketData.address, repayAmount, shortfallEth).then(() => {
-                // Nothing to do yet
+                console.log(`SUCCESSFULLY LIQUIDATED ACCOUNT ${account.address}`);
             });
             account.liquidated = true;
         }
+
+        console.log('');
     }
 }
 
 const listenPricesUniswap = (markets, uniswapOracle) => {
     uniswapOracle.on('PriceUpdated', (symbol, price) => {
+        if (symbol === 'BTC') {
+            symbol = 'WBTC';
+        }
+
         for (let market of Object.values(markets)) {
             if (market._data.underlyingToken.symbol === symbol) {
                 // need to transform the price we receive to mirror
                 // https://github.com/compound-finance/open-oracle/blob/master/contracts/Uniswap/UniswapAnchoredView.sol#L135
-                market._data.underlyingPrice = price.mul(constants.TEN.pow(30))
-                    .div(market._data.underlyingToken.decimals);
-                console.log(`[${symbol}] PRICE_UPDATED ${price.toString()}`);
+                let newPrice = price.mul(constants.TEN.pow(30)).div(constants.TEN.pow(18));
+                let oldPrice = market._data.underlyingPrice;
 
-                break;
+                let ethToken = tokens.TokenFactory.getEthToken();
+                console.log(`[${symbol}] PRICE_UPDATED (raw ${price.toString()}) ${ethToken.formatAmount(oldPrice)} => ${ethToken.formatAmount(newPrice)}`);
+
+                market._data.underlyingPrice = newPrice;
+
+                return;
             }
-            throw new Error("Could not find market for symbol " + symbol);
         }
+
+        throw new Error("Could not find market for symbol " + symbol);
     });
 
     uniswapOracle.on('AnchorPriceUpdated', (symbol, anchorPrice, oldTimestamp, newTimestamp) => {
