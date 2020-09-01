@@ -61,6 +61,8 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
         }
     );
 
+    console.log(`LIQUIDATION RESULT ${result}`);
+
     // let gasEstimate = await liquidatorContractGlobal.estimateGas.liquidate( // callStatic = dry run
     //     account,
     //     borrowedMarket,
@@ -71,7 +73,7 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
     //     }
     // );
 
-    console.log(`Gas estimate: ${gasEstimate}`);
+    //console.log(`Gas estimate: ${gasEstimate}`);
 
     await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account}`);
 }
@@ -381,7 +383,7 @@ const listenMarkets = (accounts, markets) => {
     }
 }
 
-const getMarkets = async (comptrollerContract, priceOracleContract) => {
+const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber) => {
     let markets = await comptrollerContract.getAllMarkets();
 
     let allMarkets = {};
@@ -401,19 +403,23 @@ const getMarkets = async (comptrollerContract, priceOracleContract) => {
             underlyingToken = tokens.TokenFactory.getEthToken();
         }
 
+        let overrides = {
+            blockTag: blockNumber
+        };
+
         let [totalSupply, totalBorrows, borrowIndex, totalReserves, totalCash] = await Promise.all([
-            cTokenContract.totalSupply(),
-            cTokenContract.totalBorrows(),
-            cTokenContract.borrowIndex(),
-            cTokenContract.totalReserves(),
-            cTokenContract.getCash(),
+            cTokenContract.totalSupply(overrides),
+            cTokenContract.totalBorrows(overrides),
+            cTokenContract.borrowIndex(overrides),
+            cTokenContract.totalReserves(overrides),
+            cTokenContract.getCash(overrides),
         ]);
 
-        let underlyingPrice = await priceOracleContract.getUnderlyingPrice(marketAddress);
+        let underlyingPrice = await priceOracleContract.getUnderlyingPrice(marketAddress, overrides);
 
         underlyingPrice = underlyingPrice.div(constants.TEN.pow(18 - underlyingToken.decimals));
 
-        let [isListed, collateralFactor] = await comptrollerContract.markets(marketAddress);
+        let [isListed, collateralFactor] = await comptrollerContract.markets(marketAddress, overrides);
 
         cTokenContract._data = new (function() {
             this.address = cTokenContract.address;
@@ -440,7 +446,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract) => {
             }
         })();
 
-        let exchangeRate = await cTokenContract.exchangeRateStored();
+        let exchangeRate = await cTokenContract.exchangeRateStored(overrides);
 
         console.log(`cTOKEN ${underlyingToken.symbol} 
             exchangeRate ${cTokenContract._data.getExchangeRate().toString()} CONFIRMED
@@ -537,14 +543,6 @@ const getAccounts = async (markets, blockNumber) => {
     return accountsMap;
 }
 
-const getBlockNumber = () => {
-    return new Promise((resolve, reject) => {
-        ethers.provider.once('block', (blockNumber) => {
-            resolve(blockNumber);
-        });
-    });
-}
-
 const getComptroller = async () => {
     let comptrollerContract = new ethers.Contract(COMPTROLLER_ADDRESS, COMPTROLLER_ABI, wallet);
 
@@ -615,28 +613,35 @@ const run = async () => {
 
     let uniswapOracle = await getUniswapOracle();
 
-    let markets = await getMarkets(comptrollerContract, uniswapOracle);
+    // Start from some blocks back
+    let blockNumber = await ethers.provider.getBlockNumber();
 
-    let blockNumber = await getBlockNumber();
+    let startBlock = blockNumber - 15;
 
-    console.log(`STARTING FROM BLOCK NUMBER ${blockNumber}`);
+    console.log(`STARTING FROM BLOCK NUMBER ${startBlock}`);
+
+    // Load markets from start block
+    let markets = await getMarkets(comptrollerContract, uniswapOracle, startBlock);
 
     // Fetch accounts from REST service
-    let accounts = await getAccounts(markets, blockNumber);
+    let accounts = await getAccounts(markets, startBlock);
 
-    doLiquidation(accounts, markets); // once at start
-    
     // Don't interrupt the event loop until block num is reset
     listenPricesUniswap(markets, uniswapOracle);
     listenMarkets(accounts, markets);
 
     // Start playing events from snapshot
-    ethers.provider.resetEventsBlock(blockNumber + 1);
+    ethers.provider.resetEventsBlock(startBlock + 1);
 
-    ethers.provider.on('didPoll', () => {
-        console.log('POLL');
+    ethers.provider.on('didPoll', async () => {
+        let newBlock = await ethers.provider.getBlockNumber();
 
-        doLiquidation(accounts, markets); // after the block is processed
+        if (newBlock > blockNumber) {
+            console.log(`NEW BLOCK ${newBlock}`);
+            blockNumber = newBlock;
+
+            doLiquidation(accounts, markets);
+        }
     });
 
     // Long running
