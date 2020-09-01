@@ -30,6 +30,10 @@ let liquidatorContractGlobal = undefined;
 
 const slackURL = 'https://hooks.slack.com/services/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';
 
+const ETHERSCAN_API_KEY = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
+
+let gasPriceGlobal = undefined;
+
 const sendMessage = async (subject, message) => {
     let data = {
         username: 'LiquidatorBot',
@@ -56,7 +60,7 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
         collateralMarket,
         repayBorrowAmount,
         {
-            "gasPrice" : ethers.utils.parseUnits(constants.LIQUIDATION_GAS_PRICE, 'gwei'),
+            "gasPrice" : gasPriceGlobal,
             "gasLimit": constants.LIQUIDATION_GAS_LIMIT.toNumber(),
         }
     );
@@ -82,7 +86,7 @@ const doLiquidation = (accounts, markets) => {
     let ethToken = tokens.TokenFactory.getEthToken();
     const liquidationGasCost = ethers.utils.parseEther((Math.ceil(ethToken.price) + ''))
         .mul(constants.LIQUIDATION_GAS_LIMIT)
-        .mul(ethers.utils.parseUnits(constants.LIQUIDATION_GAS_PRICE, 'gwei'))
+        .mul(gasPriceGlobal)
         .div(EXPONENT);
     console.log(` \nLiquidation Gas Cost: ${ethToken.formatAmount(liquidationGasCost)} USD \n`);
 
@@ -584,6 +588,15 @@ const getLiquidator = async () => {
     return liquidatorContractGlobal;
 }
 
+const updateGasPrice = async () => {
+    let result = await axios.get(`https://api.etherscan.io/api?module=gastracker&action=gasoracle&apikey=${ETHERSCAN_API_KEY}`);
+
+    // {"LastBlock":"10772578","SafeGasPrice":"235","ProposeGasPrice":"258","FastGasPrice":"270"}
+    console.log(`GAS RESULT ${JSON.stringify(result.data)}`);
+
+    gasPriceGlobal = ethers.utils.parseUnits(result.data.result.FastGasPrice, 'gwei');
+}
+
 const run = async () => {
     await sendMessage('LIQUIDATOR', 'starting...');
 
@@ -606,6 +619,8 @@ const run = async () => {
     assert(await liquidator.owner() == operatingAddress);
 
     await tokens.TokenFactory.init();
+
+    await updateGasPrice();
 
     console.log('READY LITTYQUIDATOR 1');
 
@@ -646,6 +661,8 @@ const run = async () => {
 
     // Long running
     while (true) {
+        await updateGasPrice();
+
         await new Promise( resolve => setTimeout( resolve, 5000 ) );
     }
 }
