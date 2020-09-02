@@ -644,11 +644,17 @@ const run = async () => {
     // Start playing events from snapshot
     ethers.provider.resetEventsBlock(startBlock + 1);
 
-    ethers.provider.on('didPoll', async () => {
-        let newBlock = await ethers.provider.getBlockNumber();
+    let newBlock = blockNumber;
+    ethers.provider.on('poll', (pollId, newBlockNumber) => {
+        // called first
+        console.log(`NEW BLOCK ${newBlockNumber}`);
 
+        newBlock = newBlockNumber;
+    });
+
+    ethers.provider.on('didPoll', (pollId) => {
+        // called after all events
         if (newBlock > blockNumber) {
-            console.log(`NEW BLOCK ${newBlock}`);
             blockNumber = newBlock;
 
             doLiquidation(accounts, markets);
