@@ -47,6 +47,7 @@ const sendMessage = async (subject, message) => {
 }
 
 const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, shortfallEth) => {
+    // Confirm the liquidity before we send this off
     let comptrollerContract = comptrollerContractGlobal;
     let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(account);
 
@@ -57,20 +58,24 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
         throw new Error(`expected shortfall when comptroller shows none! ${account}`);
     }
 
-    let result = await liquidatorContractGlobal.callStatic.liquidate( // callStatic = dry run
-        account,
-        borrowedMarket,
-        collateralMarket,
-        repayBorrowAmount,
-        {
-            "gasPrice" : gasPriceGlobal,
-            "gasLimit": constants.LIQUIDATION_GAS_LIMIT.toNumber(),
-        }
-    );
+    try {
+	let result = await liquidatorContractGlobal.callStatic.liquidate( // callStatic = dry run
+	    account,
+	    borrowedMarket,
+	    collateralMarket,
+	    repayBorrowAmount,
+	    {
+		gasPrice: gasPriceGlobal,
+		gasLimit: constants.LIQUIDATION_GAS_LIMIT.toNumber(),
+	    }
+	);
 
-    console.log(`LIQUIDATION RESULT ${result}`);
+	console.log(`LIQUIDATION RESULT ${result}`);
 
-    await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account}`);
+	await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account}`);
+    } catch (err) {
+        console.log(`FAILED TO LIQUIDATE ACCOUNT ${err}`);
+    }
 }
 
 const doLiquidation = (accounts, markets) => {
@@ -151,6 +156,13 @@ const doLiquidation = (accounts, markets) => {
         console.log(`++ TOTAL ${ethToken.formatAmount(totalBorrowedEth)} USD borrowed / ${ethToken.formatAmount(totalSuppliedEth)} USD supplied`);
         console.log(`++ SHORTFALL ${ethToken.formatAmount(shortfallEth)}`);
 
+        // comptrollerContractGlobal.getAccountLiquidity(account.address).then((result) => {
+        //     let [err, liquidity, shortfall] = result;
+        //     if (shortfall.eq(0)) {
+        //         throw new Error(`${account.address} invalid shortfall ${shortfallEth} vs ${shortfall}`);
+        //     }
+        // });
+
         // Pb = price borrow, Ps = price supplied, R = repay amount, Bx = balance
         //
         // C = 1.05 * Pb / Ps
@@ -179,6 +191,8 @@ const doLiquidation = (accounts, markets) => {
         let repayBorrow = balanceBorrowed.mul(CLOSE_FACTOR_MANTISSA).div(EXPONENT);
 
         let repayAmount = repaySupply.gt(repayBorrow) ? repayBorrow : repaySupply; // borrowed underlying
+        // Since we are not accouting for interest, use 90% of the repay amount to avoid over-seizing
+        repayAmount = repayBorrowAmount.mul(90).div(100);
 
         let repayAmountEth = repayAmount.mul(priceBorrowed).div(constants.TEN.pow(borrowedMarketData.underlyingToken.decimals));
 
@@ -196,7 +210,14 @@ const doLiquidation = (accounts, markets) => {
         let profitColor = profit.gt(0) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
         console.log(profitColor, `++ PROFIT ${ethToken.formatAmount(profit)} USD`);
 
-        if (profit.gt(0)) {
+        // TODO remove when new contract deployed
+        if (suppliedMarketData.address === borrowedMarketData.address) {
+            console.log('CANNOT LIQUIDATE SAME TOKEN');
+            continue;
+        }
+
+        //if (profit.gt(0)) {
+        if (true) {
             console.log(constants.CONSOLE_GREEN, `LIQUIDATING ACCOUNT ${account.address}`);
             liquidateAccount(account.address, borrowedMarketData.address, suppliedMarketData.address, repayAmount, shortfallEth).then(() => {
                 console.log(`SUCCESSFULLY LIQUIDATED ACCOUNT ${account.address}`);
@@ -246,22 +267,24 @@ const listenMarkets = (accounts, markets) => {
     for (let [address, contract] of Object.entries(markets)) {
         let cTokenContract = contract;
 
-        cTokenContract.on('AccrueInterest', (interestAccumulated, borrowIndexNew, totalBorrowsNew) => {
+        cTokenContract.on('AccrueInterest', (interestAccumulated, borrowIndexNew, totalBorrowsNew, txInfo) => {
             cTokenContract._data.borrowIndex = borrowIndexNew;
             cTokenContract._data.totalBorrows = totalBorrowsNew;
 
+            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
             console.log(`[${cTokenContract._data.underlyingToken.symbol}] ACCRUE_INTEREST
                 ${cTokenContract._data.token.formatAmount(borrowIndexNew)} borrowIndex
                 ${cTokenContract._data.underlyingToken.formatAmount(totalBorrowsNew)} ${cTokenContract._data.underlyingToken.symbol} totalBorrowsNew
                 ${cTokenContract._data.underlyingToken.formatAmount(interestAccumulated)} ${cTokenContract._data.underlyingToken.symbol} interestAccumulated`);
         });
 
-        cTokenContract.on('Mint', (minter, mintAmount, mintTokens) => {
+        cTokenContract.on('Mint', (minter, mintAmount, mintTokens, txInfo) => {
             // User supplied mintAmount to the pool and receives mintTokens cTokens in exchange
             // Followed by Transfer event
 
             cTokenContract._data.totalCash = cTokenContract._data.totalCash.add(mintAmount);
 
+            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
             console.log(`[${cTokenContract._data.underlyingToken.symbol}] MINT - ${minter} 
                 ${cTokenContract._data.underlyingToken.formatAmount(mintAmount)} ${cTokenContract._data.underlyingToken.symbol} deposited
                 ${cTokenContract._data.token.formatAmount(mintTokens)} ${cTokenContract._data.token.symbol} minted
@@ -274,20 +297,22 @@ const listenMarkets = (accounts, markets) => {
             }
         });
 
-        cTokenContract.on('Redeem', (redeemer, redeemAmount, redeemTokens) => {
+        cTokenContract.on('Redeem', (redeemer, redeemAmount, redeemTokens, txInfo) => {
             // User redeemed redeemTokens cTokens for redeemAmount underlying
             // Preceded by Transfer event
 
             cTokenContract._data.totalCash = cTokenContract._data.totalCash.sub(redeemAmount);
 
+            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
             console.log(`[${cTokenContract._data.underlyingToken.symbol}] REDEEM - ${redeemer} 
                 ${cTokenContract._data.token.formatAmount(redeemTokens)} ${cTokenContract._data.token.symbol} redeemed
                 ${cTokenContract._data.underlyingToken.formatAmount(redeemAmount)} ${cTokenContract._data.underlyingToken.symbol} returned`);
         });
 
-        cTokenContract.on('Borrow', (borrower, borrowAmount, accountBorrows, totalBorrows) => {
+        cTokenContract.on('Borrow', (borrower, borrowAmount, accountBorrows, totalBorrows, txInfo) => {
             // User borrowed borrowAmount tokens, new borrow balance is accountBorrows
 
+            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
             console.log(`[${cTokenContract._data.underlyingToken.symbol}] BORROW ${borrower} 
                 ${cTokenContract._data.underlyingToken.formatAmount(borrowAmount)} borrowed
                 ${cTokenContract._data.underlyingToken.formatAmount(accountBorrows)} outstanding`);
@@ -303,9 +328,10 @@ const listenMarkets = (accounts, markets) => {
             }
         });
 
-        cTokenContract.on('RepayBorrow', (payer, borrower, repayAmount, accountBorrows, totalBorrows) => {
+        cTokenContract.on('RepayBorrow', (payer, borrower, repayAmount, accountBorrows, totalBorrows, txInfo) => {
             // User repaid the borrow with repayAmount
 
+            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
             console.log(`[${cTokenContract._data.underlyingToken.symbol}] REPAY_BORROW - ${borrower}
                 ${cTokenContract._data.underlyingToken.formatAmount(repayAmount)} repaid
                 ${cTokenContract._data.underlyingToken.formatAmount(accountBorrows)} outstanding`);
@@ -320,12 +346,13 @@ const listenMarkets = (accounts, markets) => {
             }
         });
 
-        cTokenContract.on('LiquidateBorrow', (liquidator, borrower, repayAmount, cTokenCollateral, seizeTokens) => {
+        cTokenContract.on('LiquidateBorrow', (liquidator, borrower, repayAmount, cTokenCollateral, seizeTokens, txInfo) => {
             // Another account liquidated the borrowing account by repaying repayAmount and seizing seizeTokens of cTokenCollateral
             // There is an associated Transfer event
 
             let collateralContract = markets[cTokenCollateral];
 
+            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
             console.log(`[${cTokenContract._data.underlyingToken.symbol}] LIQUIDATE_BORROW - ${liquidator} ${borrower}
                 ${cTokenContract._data.underlyingToken.formatAmount(repayAmount)} ${cTokenContract._data.underlyingToken.symbol} repaid
                 ${collateralContract._data.token.formatAmount(seizeTokens.toString())} ${collateralContract._data.token.symbol} collateral seized`);
@@ -337,7 +364,7 @@ const listenMarkets = (accounts, markets) => {
             }
         });
 
-        cTokenContract.on('Transfer', (src, dst, amount) => {
+        cTokenContract.on('Transfer', (src, dst, amount, txInfo) => {
             // Token balances were adjusted by amount, if src or dst is the contract itself update totalSupply
             let srcTracker = src in accounts ? accounts[src][cTokenContract.address] : undefined;
             let dstTracker = dst in accounts ? accounts[dst][cTokenContract.address] : undefined;
@@ -367,6 +394,7 @@ const listenMarkets = (accounts, markets) => {
 
             let fmtAddr = (addr) => addr == cTokenContract.address ? 'MARKET' : addr;
 
+            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
             console.log(`[${cTokenContract._data.underlyingToken.symbol}] TRANSFER ${fmtAddr(src)} => ${fmtAddr(dst)}
                 ${cTokenContract._data.token.formatAmount(amount)} ${cTokenContract._data.token.symbol} transferred`);
         });
@@ -384,7 +412,8 @@ const listenMarkets = (accounts, markets) => {
         //     //doLiquidation(accounts, markets);
         // });
 
-        cTokenContract.on('ReservesReduced', (admin, amountReduced, totalReservesNew) => {
+        cTokenContract.on('ReservesReduced', (admin, amountReduced, totalReservesNew, txInfo) => {
+            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
             console.log(`[${cTokenContract._data.underlyingToken.symbol}] RESERVES_REDUCED
                 +${cTokenContract._data.underlyingToken.formatAmount(amountAdded)} ${cTokenContract._data.underlyingToken.symbol}
                 ${cTokenContract._data.underlyingToken.formatAmount(totalReservesNew)} ${cTokenContract._data.underlyingToken.symbol}`);
@@ -648,21 +677,26 @@ const run = async () => {
     // Start playing events from snapshot
     ethers.provider.resetEventsBlock(startBlock + 1);
 
-    let newBlock = blockNumber;
-    ethers.provider.on('poll', (pollId, newBlockNumber) => {
+    let nextBlock = blockNumber;
+    ethers.provider.on('poll', (pollId, newBlock) => {
         // called before events
-        console.log(`START BLOCK ${newBlockNumber}`);
-        newBlock = newBlockNumber;
+        if (newBlock > nextBlock) {
+	    console.log(`START BLOCK ${newBlock}`);
+
+	    nextBlock = newBlock;
+        }
     });
 
     ethers.provider.on('didPoll', (pollId) => {
         // called after all events
-        if (newBlock > blockNumber) {
-            console.log(`END BLOCK ${newBlock}`);
+        if (nextBlock > blockNumber) {
+            console.log(`END BLOCK ${nextBlock}`);
 
-            blockNumber = newBlock;
+            blockNumber = nextBlock;
 
             doLiquidation(accounts, markets);
+
+            console.log(`DONE BLOCK ${blockNumber}`);
         }
     });
 
@@ -670,7 +704,7 @@ const run = async () => {
     while (true) {
         await updateGasPrice();
 
-        await new Promise( resolve => setTimeout( resolve, 5000 ) );
+        await new Promise( resolve => setTimeout( resolve, 30 * 1000 ) );
     }
 }
 
@@ -686,8 +720,10 @@ module.exports = async () => {
     try {
         await run();
     } catch (err) {
+        console.log(err);
+
         await sendMessage(`ERROR', 'process exited\n ${err}`);
         
-        console.log(err);
+        throw err;
     }
 }
