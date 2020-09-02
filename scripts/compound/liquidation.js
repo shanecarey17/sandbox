@@ -214,6 +214,10 @@ const listenPricesUniswap = (markets, uniswapOracle) => {
             symbol = 'WBTC';
         }
 
+        if (symbol === 'COMP') {
+            return;
+        }
+
         for (let market of Object.values(markets)) {
             if (market._data.underlyingToken.symbol === symbol) {
                 // need to transform the price we receive to mirror
@@ -646,15 +650,16 @@ const run = async () => {
 
     let newBlock = blockNumber;
     ethers.provider.on('poll', (pollId, newBlockNumber) => {
-        // called first
-        console.log(`NEW BLOCK ${newBlockNumber}`);
-
+        // called before events
+        console.log(`START BLOCK ${newBlockNumber}`);
         newBlock = newBlockNumber;
     });
 
     ethers.provider.on('didPoll', (pollId) => {
         // called after all events
         if (newBlock > blockNumber) {
+            console.log(`END BLOCK ${newBlock}`);
+
             blockNumber = newBlock;
 
             doLiquidation(accounts, markets);
