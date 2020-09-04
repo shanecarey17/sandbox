@@ -42,7 +42,6 @@ contract CompoundLiquidator is IUniswapV2Callee {
         uint256 repayBorrowAmount
     ) external returns (uint) {
         require(owner == msg.sender, "not owner");
-        //require(cTokenBorrowed != cTokenCollateral, "cTokenBorrowed and cTokenCollateral are the same");
         require(ICToken(cTokenBorrowed).comptroller() == ICToken(cTokenCollateral).comptroller(), "cTokens have different comptrollers");
         require(repayBorrowAmount > 0, "zero repayBorrowAmount");
 

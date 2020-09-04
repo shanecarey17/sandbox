@@ -22,6 +22,8 @@ const UNISWAP_ANCHORED_VIEW_ABI = JSON.parse(fs.readFileSync('abi/compound/unisw
 
 const EXPONENT = constants.TEN.pow(18); // Compound math expScale
 
+const LIQUIDATE_GAS_ESTIMATE = ethers.BigNumber.from(20**6);
+
 let CLOSE_FACTOR_MANTISSA = undefined;
 let LIQUIDATION_INCENTIVE_MANTISSA = undefined;
 
@@ -37,6 +39,8 @@ const ETHERSCAN_API_KEY = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
 let gasPriceGlobal = undefined;
 
 const sendMessage = async (subject, message) => {
+    console.log(`SENDING MESSAGE: ${message}`);
+
     let data = {
         username: 'LiquidatorBot',
 	text: message,
@@ -44,8 +48,6 @@ const sendMessage = async (subject, message) => {
     };
 
     await axios.post(slackURL, JSON.stringify(data));
-
-    console.log(`SENT MESSAGE: ${message}`);
 }
 
 const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, shortfallEth) => {
@@ -68,15 +70,15 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 	    repayBorrowAmount,
 	    {
 		gasPrice: gasPriceGlobal,
-		gasLimit: constants.LIQUIDATION_GAS_LIMIT.toNumber(),
+		gasLimit: LIQUIDATE_GAS_ESTIMATE,
 	    }
 	);
 
-	console.log(`LIQUIDATION RESULT ${result}`);
+	console.log(`LIQUIDATED ACCOUNT ${account} - RESULT ${result}`);
 
 	await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account}`);
     } catch (err) {
-        console.log(`FAILED TO LIQUIDATE ACCOUNT ${err}`);
+        console.log(`FAILED TO LIQUIDATE ACCOUNT ${account} - ERROR ${err}`);
 
 	await sendMessage('LIQUIDATION', `FAILED TO LIQUIDATE ACCOUNT ${account} ${err}`);
     }
@@ -602,7 +604,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		// Another account liquidated the borrowing account by repaying repayAmount and seizing seizeTokens of cTokenCollateral
 		// There is an associated Transfer event
 
-		let collateralContract = markets[cTokenCollateral];
+		let collateralContract = allMarkets[cTokenCollateral];
 
 		console.log(`[${this.underlyingToken.symbol}] LIQUIDATE_BORROW - ${liquidator} ${borrower}
 		    ${this.underlyingToken.formatAmount(repayAmount)} ${this.underlyingToken.symbol} repaid
@@ -659,6 +661,10 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 	    };
 
             this.doFailure = () => {
+                // Nothing to do here
+            }
+
+            this.doApproval = () => {
                 // Nothing to do here
             }
 
@@ -800,12 +806,19 @@ const getLiquidator = async () => {
 }
 
 const updateGasPrice = async () => {
-    let result = await axios.get(`https://api.etherscan.io/api?module=gastracker&action=gasoracle&apikey=${ETHERSCAN_API_KEY}`);
+    try {
+	let result = await axios.get(`https://api.etherscan.io/api?module=gastracker&action=gasoracle&apikey=${ETHERSCAN_API_KEY}`);
 
-    // {"LastBlock":"10772578","SafeGasPrice":"235","ProposeGasPrice":"258","FastGasPrice":"270"}
-    console.log(`GAS RESULT ${JSON.stringify(result.data)}`);
+	// {"LastBlock":"10772578","SafeGasPrice":"235","ProposeGasPrice":"258","FastGasPrice":"270"}
+	console.log(`GAS RESULT (etherscan) ${JSON.stringify(result.data)}`);
 
-    gasPriceGlobal = ethers.utils.parseUnits(result.data.result.FastGasPrice, 'gwei');
+	gasPriceGlobal = ethers.utils.parseUnits(result.data.result.FastGasPrice, 'gwei');
+    } catch (err) {
+        // Try getting the gas price from the provider directly (costs requests)
+        gasPriceGlobal = await ethers.provider.getGasPrice();
+
+        console.log(`GAS RESULT (provider) ${ethers.utils.formatUnits(gasPriceGlobal, 'gwei')}`);
+    }
 
     await new Promise( resolve => setTimeout( resolve, 30 * 1000 ) );
 
@@ -855,9 +868,12 @@ const run = async () => {
         let blockNumber = await ethers.provider.getBlockNumber();
 
         if (blockNumber === lastBlock) {
+            console.log(`NO NEW BLOCK`);
             await new Promise( resolve => setTimeout( resolve, 5 * 1000 ) );
             continue;
         }
+
+        console.log(`UPDATING FOR BLOCKS [${lastBlock + 1} - ${blockNumber}]`);
 
         // collect provider tasks
         let tasks = []
@@ -904,7 +920,7 @@ const run = async () => {
 
             if (ev.address === uniswapOracle.address) {
                 if (ev['event'] === 'PriceUpdated') {
-		    onPriceUpdated(markets, ev.args.symbol, ev.args.price);                
+		    onPriceUpdated(ev.args.symbol, ev.args.price, markets);                
                 }
             } else {
 		let market = markets[ev.address];
@@ -928,7 +944,7 @@ module.exports = async () => {
     process.on('unhandledRejection', async (err) => {
         console.log(err);
 
-        await sendMessage('ERROR', `process exited\n ${err}`);
+        await sendMessage('ERROR', `process exited - ${err}`);
 
         process.exit();
     });
@@ -938,7 +954,7 @@ module.exports = async () => {
     } catch (err) {
         console.log(err);
 
-        await sendMessage(`ERROR', 'process exited\n ${err}`);
+        await sendMessage(`ERROR', 'process exited - ${err}`);
         
         throw err;
     }
