@@ -2,6 +2,7 @@ const axios = require('axios');
 const assert = require('assert');
 const fs = require('fs');
 const util = require('util');
+const ObjectsToCsv = require('objects-to-csv');
 
 const {ethers, deployments} = require("@nomiclabs/buidler");
 
@@ -38,6 +39,21 @@ const ETHERSCAN_API_KEY = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
 
 let gasPriceGlobal = undefined;
 
+const liquidationRecords = [];
+const addLiquadationRecord = (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, shortfallEth, err) => {
+	liquidationRecords.push({
+		account,
+		borrowedMarket,
+		repayBorrowAmount,
+		collateralMarket,
+		borrowAndCollateralMarket: `${borrowedMarket}-${collateralMarket}`,
+		seizeAmount,
+		shortfallEth,
+		works: err === '' ? 'Y' : 'N',
+		err
+	});
+}
+
 const sendMessage = async (subject, message) => {
     console.log(`SENDING MESSAGE: ${message}`);
 
@@ -50,7 +66,8 @@ const sendMessage = async (subject, message) => {
     await axios.post(slackURL, JSON.stringify(data));
 }
 
-const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, shortfallEth) => {
+const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, shortfallEth) => {
+
     // Confirm the liquidity before we send this off
     let comptrollerContract = comptrollerContractGlobal;
     let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(account);
@@ -62,11 +79,12 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
         throw new Error(`expected shortfall when comptroller shows none! ${account}`);
     }
 
+    let error = '';
     try {
 	let result = await liquidatorContractGlobal.callStatic.liquidate( // callStatic = dry run
 	    account,
-	    borrowedMarket,
-	    collateralMarket,
+	    borrowedMarket.address,
+	    collateralMarket.address,
 	    repayBorrowAmount,
 	    {
 		gasPrice: gasPriceGlobal,
@@ -80,8 +98,11 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
     } catch (err) {
         console.log(`FAILED TO LIQUIDATE ACCOUNT ${account} - ERROR ${err}`);
 
-	await sendMessage('LIQUIDATION', `FAILED TO LIQUIDATE ACCOUNT ${account} ${err}`);
-    }
+        error = `${err}`;
+		await sendMessage('LIQUIDATION', `FAILED TO LIQUIDATE ACCOUNT ${account} ${err}`);
+    } finally {
+		addLiquadationRecord(account, borrowedMarket.underlyingToken.symbol, collateralMarket.underlyingToken.symbol, borrowedMarket.underlyingToken.formatAmount(repayBorrowAmount), collateralMarket.underlyingToken.formatAmount(seizeAmount), ethToken.formatAmount(shortfallEth), error)
+	}
 }
 
 const doLiquidation = (accounts, markets) => {
@@ -225,7 +246,7 @@ const doLiquidation = (accounts, markets) => {
         //if (profit.gt(0)) {
         if (true) {
             console.log(constants.CONSOLE_GREEN, `LIQUIDATING ACCOUNT ${account.address}`);
-            liquidateAccount(account.address, borrowedMarketData.address, suppliedMarketData.address, repayAmount, shortfallEth).then(() => {
+            liquidateAccount(account.address, borrowedMarketData, suppliedMarketData, repayAmount, seizeAmount, shortfallEth).then(() => {
                 console.log(`SUCCESSFULLY LIQUIDATED ACCOUNT ${account.address}`);
             });
             account.liquidated = true;
@@ -864,6 +885,14 @@ const run = async () => {
     let lastBlock = startBlock;
 
     while (true) {
+    	// Just log to csv everytime
+		(async () => {
+			const csv = new ObjectsToCsv(liquidationRecords);
+
+			// Save to file:
+			await csv.toDisk('./liquidationRecords.csv');
+		})();
+
         // fetch the latest block
         let blockNumber = await ethers.provider.getBlockNumber();
 
