@@ -261,10 +261,6 @@ const onPriceUpdated = (symbol, price, markets) => {
 	symbol = 'WBTC';
     }
 
-    if (symbol === 'COMP') {
-	return;
-    }
-
     for (let market of Object.values(markets)) {
 	if (market._data.underlyingToken.symbol === symbol) {
 	    // need to transform the price we receive to mirror
@@ -281,7 +277,7 @@ const onPriceUpdated = (symbol, price, markets) => {
 	}
     }
 
-    throw new Error("Could not find market for symbol " + symbol);
+    console.log(`NO MARKET FOR UPDATED PRICE ${symbol} ${price}`);
 }
 
 /*

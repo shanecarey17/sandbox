@@ -81,6 +81,7 @@ module.exports = {
                 "0x6d903f6003cca6255D85CcA4D3B5E5146dC33925", // timelock compound
                 "0x8cee3eeab46774c1cde4f6368e3ae68bccd760bf", // usdc whale https://etherscan.io/token/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48?a=0x8cee3eeab46774c1cde4f6368e3ae68bccd760bf
                 "0x742d35cc6634c0532925a3b844bc454e4438f44e", // ETH whale https://etherscan.io/address/0x742d35cc6634c0532925a3b844bc454e4438f44e
+                "0xf38da89048346b33527617dc1deb592921bb6c83", // ZRX whale 
             ],
 
             // Buidler options

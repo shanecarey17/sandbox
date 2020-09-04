@@ -181,19 +181,12 @@ contract CompoundLiquidator is IUniswapV2Callee {
             collateralTokenUnderlying = ICToken(data.cTokenCollateral).underlying();
         }
 
-        //require(false, Utils.uint2str(data.swapCollateralAmount));
         //require(false, Utils.uint2str(MyERC20(collateralTokenUnderlying).balanceOf(address(this))));
-/*
-        require(false, Utils.concat(
-            Utils.uint2str(data.swapCollateralAmount),
-            Utils.concat(
-                " ",
-                Utils.uint2str(MyERC20(collateralTokenUnderlying).balanceOf(address(this)))
-            )
-        ));
-*/
+        //require(false, Utils.uint2str(data.swapCollateralAmount));
+
         // 4. Now the flash loan can go through because we have a balance of collateral token to swap for our borrowed tokens
-        MyERC20(collateralTokenUnderlying).transfer(data.uniswapPair, data.swapCollateralAmount);
+        bool success = MyERC20(collateralTokenUnderlying).transfer(data.uniswapPair, data.swapCollateralAmount);
+        require(success, "erc20 transfer failed");
     }
 
     function withdraw(address token) external {
