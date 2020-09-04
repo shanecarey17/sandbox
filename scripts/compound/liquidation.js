@@ -40,7 +40,7 @@ const ETHERSCAN_API_KEY = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
 let gasPriceGlobal = undefined;
 
 const liquidationRecords = [];
-const addLiquadationRecord = (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, shortfallEth, err) => {
+const addLiquadationRecord = (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, estimatedSeizeAmount, shortfallEth, repaySupplyWasLarger, err) => {
 	liquidationRecords.push({
 		account,
 		borrowedMarket,
@@ -48,8 +48,10 @@ const addLiquadationRecord = (account, borrowedMarket, collateralMarket, repayBo
 		collateralMarket,
 		borrowAndCollateralMarket: `${borrowedMarket}-${collateralMarket}`,
 		seizeAmount,
+		estimatedSeizeAmount,
 		shortfallEth,
 		works: err === '' ? 'Y' : 'N',
+		repaySupplyWasLarger: repaySupplyWasLarger ? 'Y' : 'N',
 		err
 	});
 }
@@ -66,11 +68,12 @@ const sendMessage = async (subject, message) => {
     await axios.post(slackURL, JSON.stringify(data));
 }
 
-const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, shortfallEth) => {
+const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, shortfallEth, repaySupplyWasLarger) => {
 
     // Confirm the liquidity before we send this off
     let comptrollerContract = comptrollerContractGlobal;
     let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(account);
+	let [err2, estimatedSeizeAmount] = await comptrollerContractGlobal.liquidateCalculateSeizeTokens(borrowedMarket.address, collateralMarket.address, repayBorrowAmount);
 
     let ethToken = tokens.TokenFactory.getEthToken();
     let color = shortfallEth.eq(shortfall) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
@@ -101,7 +104,19 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
         error = `${err}`;
 		await sendMessage('LIQUIDATION', `FAILED TO LIQUIDATE ACCOUNT ${account} ${err}`);
     } finally {
-		addLiquadationRecord(account, borrowedMarket.underlyingToken.symbol, collateralMarket.underlyingToken.symbol, borrowedMarket.underlyingToken.formatAmount(repayBorrowAmount), collateralMarket.underlyingToken.formatAmount(seizeAmount), ethToken.formatAmount(shortfallEth), error)
+		addLiquadationRecord(
+			account,
+			borrowedMarket.underlyingToken.symbol,
+			collateralMarket.underlyingToken.symbol,
+			borrowedMarket.underlyingToken.formatAmount(repayBorrowAmount),
+			collateralMarket.underlyingToken.formatAmount(seizeAmount),
+			collateralMarket.underlyingToken.formatAmount(collateralMarket.getExchangeRate().mul(estimatedSeizeAmount)
+				// .div(constants.TEN.pow(18 + collateralMarket.underlyingToken.decimals - collateralMarket.token.decimals))
+				.div(constants.TEN.pow(18))
+			),
+			ethToken.formatAmount(shortfallEth),
+			repaySupplyWasLarger,
+			error)
 	}
 }
 
@@ -203,21 +218,23 @@ const doLiquidation = (accounts, markets) => {
 
         let priceSupplied = suppliedMarketData.underlyingPrice;
         let priceBorrowed = borrowedMarketData.underlyingPrice;
-         
-        let balanceSupplied = maxSuppliedEthMarket.tokens // no collateral factor for repay calc
-            .mul(suppliedMarketData.getExchangeRate())
-            .div(constants.TEN.pow(18 - suppliedMarketData.token.decimals)); // supplied underlying
 
-        let repaySupply = balanceSupplied
-            .mul(EXPONENT).div(LIQUIDATION_INCENTIVE_MANTISSA) // scale by incentive
-            .mul(priceSupplied).div(constants.TEN.pow(suppliedMarketData.underlyingToken.decimals)) // supplied to eth
-            .mul(EXPONENT).div(priceBorrowed); // eth to borrowed
+		// underlying balance
+		let balanceSupplied = maxSuppliedEthMarket.tokens // no collateral factor for repay calc
+			.mul(suppliedMarketData.getExchangeRate())
+			.div(constants.TEN.pow(18)); // supplied underlying
+
+		let repaySupply = balanceSupplied
+			.mul(EXPONENT).div(LIQUIDATION_INCENTIVE_MANTISSA) // scale by incentive
+			.mul(priceSupplied).div(constants.TEN.pow(18 - (ethToken.decimals - suppliedMarketData.underlyingToken.decimals))) // supplied to eth
+			.mul(EXPONENT).div(priceBorrowed); // eth to borrowed
 
         let balanceBorrowed = maxBorrowedEthMarket.borrows;
 
         let repayBorrow = balanceBorrowed.mul(CLOSE_FACTOR_MANTISSA).div(EXPONENT);
 
-        let repayAmount = repaySupply.gt(repayBorrow) ? repayBorrow : repaySupply; // borrowed underlying
+        const repaySupplyWasLarger = repaySupply.gt(repayBorrow);
+        let repayAmount = repaySupplyWasLarger ? repayBorrow : repaySupply; // borrowed underlying
         // Since we are not accouting for interest, use 90% of the repay amount to avoid over-seizing
         repayAmount = repayAmount.mul(90).div(100);
 
@@ -246,7 +263,7 @@ const doLiquidation = (accounts, markets) => {
         //if (profit.gt(0)) {
         if (true) {
             console.log(constants.CONSOLE_GREEN, `LIQUIDATING ACCOUNT ${account.address}`);
-            liquidateAccount(account.address, borrowedMarketData, suppliedMarketData, repayAmount, seizeAmount, shortfallEth).then(() => {
+            liquidateAccount(account.address, borrowedMarketData, suppliedMarketData, repayAmount, seizeAmount, shortfallEth, repaySupplyWasLarger).then(() => {
                 console.log(`SUCCESSFULLY LIQUIDATED ACCOUNT ${account.address}`);
             });
             account.liquidated = true;
