@@ -21,6 +21,8 @@ const PRICE_ORACLE_ABI = JSON.parse(fs.readFileSync('abi/compound/priceoracle.js
 const UNISWAP_ANCHORED_VIEW_ADDRESS = '0x9B8Eb8b3d6e2e0Db36F41455185FEF7049a35CaE';
 const UNISWAP_ANCHORED_VIEW_ABI = JSON.parse(fs.readFileSync('abi/compound/uniswapanchoredview.json'));
 
+const WETH_ADDRESS = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
+
 const EXPONENT = constants.TEN.pow(18); // Compound math expScale
 
 const LIQUIDATE_GAS_ESTIMATE = ethers.BigNumber.from(20**6);
@@ -30,6 +32,7 @@ let LIQUIDATION_INCENTIVE_MANTISSA = undefined;
 
 let comptrollerContractGlobal = undefined;
 let liquidatorContractGlobal = undefined;
+let uniswapFactoryContractGlobal = undefined;
 
 let accountsGlobal = {};
 
@@ -40,18 +43,22 @@ const ETHERSCAN_API_KEY = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
 let gasPriceGlobal = undefined;
 
 const liquidationRecords = [];
-const addLiquadationRecord = (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, estimatedSeizeAmount, shortfallEth, repaySupplyWasLarger, err) => {
+const addLiquadationRecord = (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, estimatedSeizeAmount, shortfallEth, repaySupplyWasLarger, reserveIn, reserveOut, amountIn, err) => {
 	liquidationRecords.push({
 		account,
 		borrowedMarket,
-		repayBorrowAmount,
+		repayBorrowAmount: repayBorrowAmount.toString(),
 		collateralMarket,
 		borrowAndCollateralMarket: `${borrowedMarket}-${collateralMarket}`,
-		seizeAmount,
+		seizeAmount: seizeAmount.toString(),
 		estimatedSeizeAmount,
 		shortfallEth,
 		works: err === '' ? 'Y' : 'N',
 		repaySupplyWasLarger: repaySupplyWasLarger ? 'Y' : 'N',
+		amountOut: repayBorrowAmount.toString(),
+		reserveOut: reserveOut.toString(),
+		reserveIn: reserveIn.toString(),
+		amountIn: amountIn.toString(),
 		err
 	});
 }
@@ -69,7 +76,6 @@ const sendMessage = async (subject, message) => {
 }
 
 const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, shortfallEth, repaySupplyWasLarger) => {
-
     // Confirm the liquidity before we send this off
     let comptrollerContract = comptrollerContractGlobal;
     let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(account);
@@ -81,6 +87,30 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
     if (shortfall.eq(0)) {
         throw new Error(`expected shortfall when comptroller shows none! ${account}`);
     }
+
+    // Todo account for same token pair
+    const uniswapBorrowTokenAddress = borrowedMarket.underlyingToken.address === ethToken.address ? WETH_ADDRESS : borrowedMarket.underlyingToken.address;
+	const uniswapCollateralTokenAddress = collateralMarket.underlyingToken.address === ethToken.address ? WETH_ADDRESS : collateralMarket.underlyingToken.address;
+    const uniswapPair = await getUniswapPair(uniswapBorrowTokenAddress, uniswapCollateralTokenAddress);
+    const [reserve0, reserve1, ts] = await uniswapPair.getReserves();
+    const token0 = uniswapPair.token0();
+
+	const reserveOut = uniswapBorrowTokenAddress === token0 ? reserve0 : reserve1;
+	const reserveIn = uniswapBorrowTokenAddress === token0 ? reserve1 : reserve0;
+
+	if (repayBorrowAmount.gte(reserveOut)) {
+		console.log(`Uniswap did not have enough reserves when liquidating account ${account}`);
+		return;
+	}
+
+	const numerator = reserveIn.mul(repayBorrowAmount).mul(1000);
+	const denominator = reserveOut.sub(repayBorrowAmount).mul(997);
+	const amountIn = numerator.div(denominator).add(1);
+
+	if (amountIn.gte(seizeAmount)) {
+		console.log(`Did not seize enough repay uniswap for account: ${account}`);
+		return;
+	}
 
     let error = '';
     try {
@@ -108,17 +138,30 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 			account,
 			borrowedMarket.underlyingToken.symbol,
 			collateralMarket.underlyingToken.symbol,
-			borrowedMarket.underlyingToken.formatAmount(repayBorrowAmount),
-			collateralMarket.underlyingToken.formatAmount(seizeAmount),
+			repayBorrowAmount,
+			seizeAmount,
 			collateralMarket.underlyingToken.formatAmount(collateralMarket.getExchangeRate().mul(estimatedSeizeAmount)
 				// .div(constants.TEN.pow(18 + collateralMarket.underlyingToken.decimals - collateralMarket.token.decimals))
 				.div(constants.TEN.pow(18))
 			),
 			ethToken.formatAmount(shortfallEth),
 			repaySupplyWasLarger,
+			reserveIn,
+			reserveOut,
+			amountIn,
 			error)
 	}
-}
+};
+
+// TODO add caching
+const uniswapPairs = {};
+const getUniswapPair = async (borrowMarketUnderlyingAddress, collateralMarketUnderlyingAddress) => {
+	let pairAddress = await uniswapFactoryContractGlobal.getPair(
+		borrowMarketUnderlyingAddress,
+		collateralMarketUnderlyingAddress
+	);
+	return await ethers.getContractAt("IUniswapV2Pair", pairAddress);
+};
 
 const doLiquidation = (accounts, markets) => {
     let ethToken = tokens.TokenFactory.getEthToken();
@@ -263,8 +306,14 @@ const doLiquidation = (accounts, markets) => {
         //if (profit.gt(0)) {
         if (true) {
             console.log(constants.CONSOLE_GREEN, `LIQUIDATING ACCOUNT ${account.address}`);
-            liquidateAccount(account.address, borrowedMarketData, suppliedMarketData, repayAmount, seizeAmount, shortfallEth, repaySupplyWasLarger).then(() => {
-                console.log(`SUCCESSFULLY LIQUIDATED ACCOUNT ${account.address}`);
+            liquidateAccount(account.address,
+				borrowedMarketData,
+				suppliedMarketData,
+				repayAmount,
+				seizeAmount,
+				shortfallEth,
+				repaySupplyWasLarger).then(() => {
+                // noop
             });
             account.liquidated = true;
         }
@@ -839,6 +888,11 @@ const getLiquidator = async () => {
     return liquidatorContractGlobal;
 }
 
+const getUniswapFactory = async () => {
+	uniswapFactoryContractGlobal = await ethers.getContractAt("IUniswapV2Factory", "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f");
+	return uniswapFactoryContractGlobal;
+}
+
 const updateGasPrice = async () => {
     try {
 	let result = await axios.get(`https://api.etherscan.io/api?module=gastracker&action=gasoracle&apikey=${ETHERSCAN_API_KEY}`);
@@ -881,6 +935,8 @@ const run = async () => {
     let comptrollerContract = await getComptroller();
 
     let uniswapOracle = await getUniswapOracle();
+
+    await getUniswapFactory();
 
     // Start from some blocks back
     let blockNumber = await ethers.provider.getBlockNumber();

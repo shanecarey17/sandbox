@@ -66,8 +66,22 @@ describe("Liquidator", async () => {
         });
 
         let compAdmin = await ethers.provider.getSigner(COMPTROLLER_ADMIN);
-        await comptrollerContract.connect(compAdmin)._setPriceOracle(oracleContract.address);
-        expect(await comptrollerContract.oracle()).to.equal(oracleContract.address);
+        // await comptrollerContract.connect(compAdmin)._setPriceOracle(oracleContract.address);
+        // expect(await comptrollerContract.oracle()).to.equal(oracleContract.address);
+    });
+
+    it.only('test zap', async () => {
+        await liquidatorContract.enterMarkets(COMPTROLLER_ADDRESS, [CDAI, CZRX]);
+        let result = await liquidatorContract.liquidate(
+            "0x055F9D6A6071A603B80c6403DdA60cb10C769999",
+            CDAI,
+            CZRX,
+            "156079920845855000000",
+            {
+                gasLimit: 5 * 10**6, // estimate gas on ganache has bug
+            }
+        );
+        console.log(result);
     });
 
     it('DAI-DAI', async () => {
@@ -196,7 +210,7 @@ describe("Liquidator", async () => {
         expect(await dai.balanceOf(ownerAccountAddress)).to.equal(strategyDaiBalance);
     });
 
-    it.only('ZRX-DAI', async () => {
+    it('ZRX-DAI', async () => {
         let signers = await ethers.getSigners();
         const borrowingAccount = signers[2];
         const borrowAccountAddress = await borrowingAccount.getAddress();
@@ -317,7 +331,7 @@ describe("Liquidator", async () => {
         expect(newOwnerZrxBalance.sub(prevOwnerZrxBalance)).to.equal(strategyZrxBalance);
     });
 
-    it('DAI-ZRX', async () => {
+    it.only('DAI-ZRX', async () => {
         let signers = await ethers.getSigners();
         const borrowingAccount = signers[2];
         const borrowAccountAddress = await borrowingAccount.getAddress();
@@ -379,8 +393,8 @@ describe("Liquidator", async () => {
         console.log("shortfall after borrow: ", shortfall2.toString());
 
         // // Get rekt
-        console.log("a blackswan appeared, ZRX went to $3");
-        await oracleContract.setUnderlyingPrice(CZRX, ethers2.utils.parseEther('3'));
+        console.log("a blackswan appeared, ZRX went to $5");
+        await oracleContract.setUnderlyingPrice(CZRX, ethers2.utils.parseEther('5'));
 
         let [err3, liquidity3, shortfall3] = await comptrollerContract.getAccountLiquidity(borrowAccountAddress);
         console.log("error after price change: ", err3.toString());

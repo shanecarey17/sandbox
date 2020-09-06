@@ -49,11 +49,6 @@ contract CompoundLiquidator is IUniswapV2Callee {
 
         address uniswapPair = getUniswapPair(borrowedToken, collateralToken);
 
-        uint pairBorrowedAvailable = MyERC20(borrowedToken).balanceOf(uniswapPair);
-        if (pairBorrowedAvailable < repayBorrowAmount) {
-            repayBorrowAmount = pairBorrowedAvailable;
-        }
-
         (uint amount0Out, uint amount1Out, uint swapCollateralAmount) = getAmounts(uniswapPair, borrowedToken, repayBorrowAmount, collateralToken);
 
         Data memory data = Data({
@@ -158,7 +153,10 @@ contract CompoundLiquidator is IUniswapV2Callee {
         } else {
             require(MyERC20(ICToken(data.cTokenBorrowed).underlying()).balanceOf(address(this)) >= data.repayBorrowAmount, "bad swap");
             // Easy we already have the balance
-            MyERC20(ICToken(data.cTokenBorrowed).underlying()).approve(data.cTokenBorrowed, data.repayBorrowAmount);
+            address underlyingAddress = ICToken(data.cTokenBorrowed).underlying();
+            // Need to approve 0 first for USDT bug
+            MyERC20(underlyingAddress).approve(data.cTokenBorrowed, 0);
+            MyERC20(underlyingAddress).approve(data.cTokenBorrowed, data.repayBorrowAmount);
 
             uint res = ICERC20(data.cTokenBorrowed).liquidateBorrow(data.borrowAccount, data.repayBorrowAmount, data.cTokenCollateral);
 
