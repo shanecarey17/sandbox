@@ -93,7 +93,7 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 	const uniswapCollateralTokenAddress = collateralMarket.underlyingToken.address === ethToken.address ? WETH_ADDRESS : collateralMarket.underlyingToken.address;
     const uniswapPair = await getUniswapPair(uniswapBorrowTokenAddress, uniswapCollateralTokenAddress);
     const [reserve0, reserve1, ts] = await uniswapPair.getReserves();
-    const token0 = uniswapPair.token0();
+    const token0 = await uniswapPair.token0();
 
 	const reserveOut = uniswapBorrowTokenAddress === token0 ? reserve0 : reserve1;
 	const reserveIn = uniswapBorrowTokenAddress === token0 ? reserve1 : reserve0;
