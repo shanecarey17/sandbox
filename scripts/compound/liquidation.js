@@ -76,7 +76,7 @@ const sendMessage = async (subject, message) => {
 }
 
 const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, shortfallEth, repaySupplyWasLarger) => {
-    // Confirm the liquidity before we send this off
+	// Confirm the liquidity before we send this off
     let comptrollerContract = comptrollerContractGlobal;
     let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(account);
 	let [err2, estimatedSeizeAmount] = await comptrollerContractGlobal.liquidateCalculateSeizeTokens(borrowedMarket.address, collateralMarket.address, repayBorrowAmount);
@@ -87,6 +87,12 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
     if (shortfall.eq(0)) {
         throw new Error(`expected shortfall when comptroller shows none! ${account}`);
     }
+
+	// TODO remove when new contract deployed
+	if (collateralMarket.address === borrowedMarket.address) {
+		console.log('CANNOT LIQUIDATE SAME TOKEN');
+		return;
+	}
 
     // Todo account for same token pair
     const uniswapBorrowTokenAddress = borrowedMarket.underlyingToken.address === ethToken.address ? WETH_ADDRESS : borrowedMarket.underlyingToken.address;
@@ -296,12 +302,6 @@ const doLiquidation = (accounts, markets) => {
         let profit = revenue.sub(liquidationGasCost);
         let profitColor = profit.gt(0) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
         console.log(profitColor, `++ PROFIT ${ethToken.formatAmount(profit)} USD`);
-
-        // TODO remove when new contract deployed
-        if (suppliedMarketData.address === borrowedMarketData.address) {
-            console.log('CANNOT LIQUIDATE SAME TOKEN');
-            continue;
-        }
 
         //if (profit.gt(0)) {
         if (true) {
