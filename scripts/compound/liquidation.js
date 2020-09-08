@@ -101,6 +101,12 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
     const [reserve0, reserve1, ts] = await uniswapPair.getReserves();
     const token0 = await uniswapPair.token0();
 
+    const usdtAddress = '0xdac17f958d2ee523a2206206994597c13d831ec7';
+    if (uniswapBorrowTokenAddress === usdtAddress || uniswapCollateralTokenAddress === usdtAddress) {
+		console.log('CANNOT LIQUIDATE USDT token rn');
+		return;
+	}
+
 	const reserveOut = uniswapBorrowTokenAddress === token0 ? reserve0 : reserve1;
 	const reserveIn = uniswapBorrowTokenAddress === token0 ? reserve1 : reserve0;
 
@@ -120,7 +126,7 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 
     let error = '';
     try {
-	let result = await liquidatorContractGlobal.callStatic.liquidate( // callStatic = dry run
+	let result = await liquidatorContractGlobal.liquidate( // callStatic = dry run
 	    account,
 	    borrowedMarket.address,
 	    collateralMarket.address,
@@ -155,7 +161,9 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 			reserveIn,
 			reserveOut,
 			amountIn,
-			error)
+			error);
+
+		process.exit();
 	}
 };
 
@@ -303,8 +311,13 @@ const doLiquidation = (accounts, markets) => {
         let profitColor = profit.gt(0) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
         console.log(profitColor, `++ PROFIT ${ethToken.formatAmount(profit)} USD`);
 
-        //if (profit.gt(0)) {
-        if (true) {
+        if (liquidationGasCost.gt(ethers.utils.parseEther('80'))) {
+        	console.log('cant liquidate with gas greater than 100');
+        	continue;
+        }
+
+        if (profit.gt(0)) {
+        // if (true) {
             console.log(constants.CONSOLE_GREEN, `LIQUIDATING ACCOUNT ${account.address}`);
             liquidateAccount(account.address,
 				borrowedMarketData,
