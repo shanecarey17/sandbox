@@ -4,4 +4,4 @@ WORKDIR /app
 ADD package.json /app
 RUN npm install
 ADD . /app/
-CMD npx buidler runLiquidator --network mainnet
+CMD npx buidler runLiquidator --network mainnet --live $LIVE

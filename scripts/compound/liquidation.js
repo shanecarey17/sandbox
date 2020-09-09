@@ -1,3 +1,5 @@
+require('console-stamp')(console);
+
 const axios = require('axios');
 const assert = require('assert');
 const fs = require('fs');
@@ -41,6 +43,8 @@ const slackURL = 'https://hooks.slack.com/services/T019RHB91S7/B019NAJ3A7P/7dHCz
 const ETHERSCAN_API_KEY = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
 
 let gasPriceGlobal = undefined;
+
+let isLiveGlobal = false;
 
 const liquidationRecords = [];
 const addLiquadationRecord = (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, estimatedSeizeAmount, shortfallEth, repaySupplyWasLarger, reserveIn, reserveOut, amountIn, err) => {
@@ -126,7 +130,11 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 
     let error = '';
     try {
-	let result = await liquidatorContractGlobal.liquidate( // callStatic = dry run
+        let liquidateMethod = isLiveGlobal ? 
+            liquidatorContractGlobal.liquidate 
+            : liquidatorContractGlobal.callStatic.liquidate; // callStatic = dry run
+
+	let result = await liquidateMethod(
 	    account,
 	    borrowedMarket.address,
 	    collateralMarket.address,
@@ -192,7 +200,7 @@ const doLiquidation = (accounts, markets) => {
 
         let accountConsoleLine = ''; // dont print anything until the account is interesting
 
-        accountConsoleLine += `LIQUIDATION CANDIDATE ${account.address}` + '\n';
+        accountConsoleLines = [`LIQUIDATION CANDIDATE ${account.address}`];
 
         let totalBorrowedEth = constants.ZERO;
         let totalSuppliedEth = constants.ZERO;
@@ -224,7 +232,7 @@ const doLiquidation = (accounts, markets) => {
 
             let consoleLine = `++ ${marketData.underlyingToken.formatAmount(borrowedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketBorrowedEth)} USD borrowed \t`;
             consoleLine += `${marketData.token.formatAmount(accountMarket.tokens)} ${marketData.token.symbol} => ${marketData.underlyingToken.formatAmount(suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketSuppliedEth)} USD supplied @(${ethToken.formatAmount(marketData.collateralFactor)})`
-            accountConsoleLine += consoleLine + '\n';
+            accountConsoleLines.push(consoleLine);
 
             totalBorrowedEth = totalBorrowedEth.add(marketBorrowedEth);
             totalSuppliedEth = totalSuppliedEth.add(marketSuppliedEth);
@@ -250,7 +258,9 @@ const doLiquidation = (accounts, markets) => {
             continue;
         }
 
-        console.log(accountConsoleLine);
+        for (let line of accountConsoleLines) {
+            console.log(line);
+        }
 
         console.log(`++ TOTAL ${ethToken.formatAmount(totalBorrowedEth)} USD borrowed / ${ethToken.formatAmount(totalSuppliedEth)} USD supplied`);
         console.log(`++ SHORTFALL ${ethToken.formatAmount(shortfallEth)}`);
@@ -1051,9 +1061,13 @@ const run = async () => {
     }
 }
 
-module.exports = async () => {
+module.exports = async (isLive) => {
+    console.log(`STARTING live=${isLive}`);
+
+    isLiveGlobal = isLive;
+
     process.on('unhandledRejection', async (err) => {
-        console.log(err);
+        console.error(`UNHANDLED REJECTION ${err}`);
 
         await sendMessage('ERROR', `process exited - ${err}`);
 
@@ -1063,9 +1077,9 @@ module.exports = async () => {
     try {
         await run();
     } catch (err) {
-        console.log(err);
+        console.error(`EXCEPTION ${err}`);
 
-        await sendMessage(`ERROR', 'process exited - ${err}`);
+        await sendMessage('ERROR', `process exited - ${err}`);
         
         throw err;
     }

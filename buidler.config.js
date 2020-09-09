@@ -53,10 +53,13 @@ task('createWallet', "Create a wallet and output private key")
     });
 
 task('runLiquidator', "run the liquidator application")
+    .addParam('live', 'set to "true" for live liquidation')
     .setAction(async (args) => {
         const liquidator = require('./scripts/compound/liquidation.js');
 
-        await liquidator();
+        const isLive = args.live in ['t', 'true'];
+
+        await liquidator(isLive);
     });
 
 module.exports = {
