@@ -23,7 +23,12 @@ const PRICE_ORACLE_ABI = JSON.parse(fs.readFileSync('abi/compound/priceoracle.js
 const UNISWAP_ANCHORED_VIEW_ADDRESS = '0x9B8Eb8b3d6e2e0Db36F41455185FEF7049a35CaE';
 const UNISWAP_ANCHORED_VIEW_ABI = JSON.parse(fs.readFileSync('abi/compound/uniswapanchoredview.json'));
 
+const UNISWAP_FACTORY_ADDRESS = '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f'; 
+
 const WETH_ADDRESS = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
+const USDT_ADDRESS = '0xdac17f958d2ee523a2206206994597c13d831ec7';
+
+const CETH_ADDRESS = '0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5';
 
 const EXPONENT = constants.TEN.pow(18); // Compound math expScale
 
@@ -45,6 +50,8 @@ const ETHERSCAN_API_KEY = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
 let gasPriceGlobal = undefined;
 
 let isLiveGlobal = false;
+
+// Start code
 
 const liquidationRecords = [];
 const addLiquadationRecord = (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, estimatedSeizeAmount, shortfallEth, repaySupplyWasLarger, reserveIn, reserveOut, amountIn, err) => {
@@ -80,10 +87,10 @@ const sendMessage = async (subject, message) => {
 }
 
 const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, shortfallEth, repaySupplyWasLarger) => {
-	// Confirm the liquidity before we send this off
+    // Confirm the liquidity before we send this off
     let comptrollerContract = comptrollerContractGlobal;
     let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(account);
-	let [err2, estimatedSeizeAmount] = await comptrollerContractGlobal.liquidateCalculateSeizeTokens(borrowedMarket.address, collateralMarket.address, repayBorrowAmount);
+    let [err2, estimatedSeizeAmount] = await comptrollerContractGlobal.liquidateCalculateSeizeTokens(borrowedMarket.address, collateralMarket.address, repayBorrowAmount);
 
     let ethToken = tokens.TokenFactory.getEthToken();
     let color = shortfallEth.eq(shortfall) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
@@ -92,41 +99,40 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
         throw new Error(`expected shortfall when comptroller shows none! ${account}`);
     }
 
-	// TODO remove when new contract deployed
-	if (collateralMarket.address === borrowedMarket.address) {
-		console.log('CANNOT LIQUIDATE SAME TOKEN');
-		return;
-	}
+    // TODO remove when new contract deployed
+    if (collateralMarket.address === borrowedMarket.address) {
+	    console.log('CANNOT LIQUIDATE SAME TOKEN');
+	    return;
+    }
 
     // Todo account for same token pair
     const uniswapBorrowTokenAddress = borrowedMarket.underlyingToken.address === ethToken.address ? WETH_ADDRESS : borrowedMarket.underlyingToken.address;
-	const uniswapCollateralTokenAddress = collateralMarket.underlyingToken.address === ethToken.address ? WETH_ADDRESS : collateralMarket.underlyingToken.address;
+    const uniswapCollateralTokenAddress = collateralMarket.underlyingToken.address === ethToken.address ? WETH_ADDRESS : collateralMarket.underlyingToken.address;
     const uniswapPair = await getUniswapPair(uniswapBorrowTokenAddress, uniswapCollateralTokenAddress);
     const [reserve0, reserve1, ts] = await uniswapPair.getReserves();
     const token0 = await uniswapPair.token0();
 
-    const usdtAddress = '0xdac17f958d2ee523a2206206994597c13d831ec7';
-    if (uniswapBorrowTokenAddress === usdtAddress || uniswapCollateralTokenAddress === usdtAddress) {
-		console.log('CANNOT LIQUIDATE USDT token rn');
-		return;
-	}
+    if (uniswapBorrowTokenAddress === USDT_ADDRESS || uniswapCollateralTokenAddress === USDT_ADDRESS) {
+	console.log('CANNOT LIQUIDATE USDT token rn');
+	return;
+    }
 
-	const reserveOut = uniswapBorrowTokenAddress === token0 ? reserve0 : reserve1;
-	const reserveIn = uniswapBorrowTokenAddress === token0 ? reserve1 : reserve0;
+    const reserveOut = uniswapBorrowTokenAddress === token0 ? reserve0 : reserve1;
+    const reserveIn = uniswapBorrowTokenAddress === token0 ? reserve1 : reserve0;
 
-	if (repayBorrowAmount.gte(reserveOut)) {
-		console.log(`Uniswap did not have enough reserves when liquidating account ${account}`);
-		return;
-	}
+    if (repayBorrowAmount.gte(reserveOut)) {
+	console.log(`Uniswap did not have enough reserves when liquidating account ${account}`);
+	return;
+    }
 
-	const numerator = reserveIn.mul(repayBorrowAmount).mul(1000);
-	const denominator = reserveOut.sub(repayBorrowAmount).mul(997);
-	const amountIn = numerator.div(denominator).add(1);
+    const numerator = reserveIn.mul(repayBorrowAmount).mul(1000);
+    const denominator = reserveOut.sub(repayBorrowAmount).mul(997);
+    const amountIn = numerator.div(denominator).add(1);
 
-	if (amountIn.gte(seizeAmount)) {
-		console.log(`Did not seize enough repay uniswap for account: ${account}`);
-		return;
-	}
+    if (amountIn.gte(seizeAmount)) {
+	console.log(`Did not seize enough repay uniswap for account: ${account}`);
+	return;
+    }
 
     let error = '';
     try {
@@ -150,29 +156,28 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 	await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account}`);
     } catch (err) {
         console.log(`FAILED TO LIQUIDATE ACCOUNT ${account} - ERROR ${err}`);
-
         error = `${err}`;
-		await sendMessage('LIQUIDATION', `FAILED TO LIQUIDATE ACCOUNT ${account} ${err}`);
+	await sendMessage('LIQUIDATION', `FAILED TO LIQUIDATE ACCOUNT ${account} ${err}`);
     } finally {
-		addLiquadationRecord(
-			account,
-			borrowedMarket.underlyingToken.symbol,
-			collateralMarket.underlyingToken.symbol,
-			repayBorrowAmount,
-			seizeAmount,
-			collateralMarket.underlyingToken.formatAmount(collateralMarket.getExchangeRate().mul(estimatedSeizeAmount)
-				// .div(constants.TEN.pow(18 + collateralMarket.underlyingToken.decimals - collateralMarket.token.decimals))
-				.div(constants.TEN.pow(18))
-			),
-			ethToken.formatAmount(shortfallEth),
-			repaySupplyWasLarger,
-			reserveIn,
-			reserveOut,
-			amountIn,
-			error);
+	addLiquadationRecord(
+	    account,
+	    borrowedMarket.underlyingToken.symbol,
+	    collateralMarket.underlyingToken.symbol,
+	    repayBorrowAmount,
+	    seizeAmount,
+	    collateralMarket.underlyingToken.formatAmount(collateralMarket.getExchangeRate().mul(estimatedSeizeAmount)
+		.div(constants.TEN.pow(18))
+	    ),
+	    ethToken.formatAmount(shortfallEth),
+	    repaySupplyWasLarger,
+	    reserveIn,
+	    reserveOut,
+	    amountIn,
+	    error
+        );
 
-		process.exit();
-	}
+	process.exit();
+    }
 };
 
 // TODO add caching
@@ -205,10 +210,8 @@ const doLiquidation = (accounts, markets) => {
         let totalBorrowedEth = constants.ZERO;
         let totalSuppliedEth = constants.ZERO;
 
-        let maxBorrowedEth = constants.ZERO;
-        let maxBorrowedEthMarket = undefined;
-        let maxSuppliedEth = constants.ZERO;
-        let maxSuppliedEthMarket = undefined;
+        let borrowedMarkets = [];
+        let suppliedMarkets = [];
 
         for (let [marketAddress, accountMarket] of Object.entries(account)) {
             if (marketAddress === 'address') {
@@ -237,40 +240,58 @@ const doLiquidation = (accounts, markets) => {
             totalBorrowedEth = totalBorrowedEth.add(marketBorrowedEth);
             totalSuppliedEth = totalSuppliedEth.add(marketSuppliedEth);
 
-            if (marketBorrowedEth.gte(maxBorrowedEth)) {
-                maxBorrowedEth = marketBorrowedEth;
-                maxBorrowedEthMarket = accountMarket;
-            }
+            borrowedMarkets.push({
+                account: accountMarket,
+                ethAmount: marketBorrowedEth,
+                market: marketData,
+            });
 
-            if (marketSuppliedEth.gte(maxSuppliedEth)) {
-                maxSuppliedEth = marketSuppliedEth;
-                maxSuppliedEthMarket = accountMarket;
-            }
-        }
-
-        if (maxSuppliedEth.eq(0)) {
-            continue;
+            suppliedMarkets.push({
+                account: accountMarket,
+                ethAmount: marketSuppliedEth,
+                market: marketData,
+            });
         }
 
         let shortfallEth = totalBorrowedEth.sub(totalSuppliedEth);
 
         if (shortfallEth.lte(0)) {
+            // Account not in shortfall
             continue;
         }
 
+        // Liquidate largest eth borrowed for largest eth supplied
+
+        // sort so largest is in front by ethAmount
+        borrowedMarkets.sort((a, b) => { return a.ethAmount.sub(b.ethAmount).lt(0) ? 1 : -1; });
+        suppliedMarkets.sort((a, b) => { return a.ethAmount.sub(b.ethAmount).lt(0) ? 1 : -1; });
+
+        let maxBorrowedEthEntry = borrowedMarkets[0];
+        let maxSuppliedEthEntry = suppliedMarkets[0];
+
+        // Same token can only be liquidated for v2 erc20 (DAI, USDT)
+        if (maxBorrowedEthEntry.market === maxSuppliedEthEntry.market) {
+            if (!(maxBorrowedEthEntry.market.underlyingToken.symbol in ['DAI', 'USDT'])) {
+                if (borrowedMarkets.length == 1 || suppliedMarkets.length == 1) {
+                    continue; // Only one entered market
+                }
+
+                // Choose the largest market by eth amount
+                if (borrowedMarkets[1].ethAmount.gt(suppliedMarkets[1].ethAmount)) {
+                    maxBorrowedEthEntry = borrowedMarkets[1];
+                } else {
+                    maxSuppliedEthEntry = suppliedMarkets[1];
+                }
+            }
+        }
+
+        // The account is subject to liquidation, log
         for (let line of accountConsoleLines) {
             console.log(line);
         }
 
         console.log(`++ TOTAL ${ethToken.formatAmount(totalBorrowedEth)} USD borrowed / ${ethToken.formatAmount(totalSuppliedEth)} USD supplied`);
         console.log(`++ SHORTFALL ${ethToken.formatAmount(shortfallEth)}`);
-
-        // comptrollerContractGlobal.getAccountLiquidity(account.address).then((result) => {
-        //     let [err, liquidity, shortfall] = result;
-        //     if (shortfall.eq(0)) {
-        //         throw new Error(`${account.address} invalid shortfall ${shortfallEth} vs ${shortfall}`);
-        //     }
-        // });
 
         // Pb = price borrow, Ps = price supplied, R = repay amount, Bx = balance
         //
@@ -280,21 +301,24 @@ const doLiquidation = (accounts, markets) => {
         // 
         // R = min(Bs / C, Bb / 2)
 
-        let suppliedMarketData = markets[maxSuppliedEthMarket.marketAddress]._data;
-        let borrowedMarketData = markets[maxBorrowedEthMarket.marketAddress]._data;
+        let maxBorrowedEthMarket = maxBorrowedEthEntry.account;
+        let maxSuppliedEthMarket = maxSuppliedEthEntry.account;
+
+        let borrowedMarketData = maxBorrowedEthEntry.market;
+        let suppliedMarketData = maxSuppliedEthEntry.market;
 
         let priceSupplied = suppliedMarketData.underlyingPrice;
         let priceBorrowed = borrowedMarketData.underlyingPrice;
 
-		// underlying balance
-		let balanceSupplied = maxSuppliedEthMarket.tokens // no collateral factor for repay calc
-			.mul(suppliedMarketData.getExchangeRate())
-			.div(constants.TEN.pow(18)); // supplied underlying
+	// underlying balance
+	let balanceSupplied = maxSuppliedEthMarket.tokens // no collateral factor for repay calc
+		.mul(suppliedMarketData.getExchangeRate())
+		.div(constants.TEN.pow(18)); // supplied underlying
 
-		let repaySupply = balanceSupplied
-			.mul(EXPONENT).div(LIQUIDATION_INCENTIVE_MANTISSA) // scale by incentive
-			.mul(priceSupplied).div(constants.TEN.pow(18 - (ethToken.decimals - suppliedMarketData.underlyingToken.decimals))) // supplied to eth
-			.mul(EXPONENT).div(priceBorrowed); // eth to borrowed
+	let repaySupply = balanceSupplied
+		.mul(EXPONENT).div(LIQUIDATION_INCENTIVE_MANTISSA) // scale by incentive
+		.mul(priceSupplied).div(constants.TEN.pow(18 - (ethToken.decimals - suppliedMarketData.underlyingToken.decimals))) // supplied to eth
+		.mul(EXPONENT).div(priceBorrowed); // eth to borrowed
 
         let balanceBorrowed = maxBorrowedEthMarket.borrows;
 
@@ -321,21 +345,23 @@ const doLiquidation = (accounts, markets) => {
         let profitColor = profit.gt(0) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
         console.log(profitColor, `++ PROFIT ${ethToken.formatAmount(profit)} USD`);
 
+        // TODO fetch account balance
         if (liquidationGasCost.gt(ethers.utils.parseEther('80'))) {
-        	console.log('cant liquidate with gas greater than 100');
-        	continue;
+	    console.log('cant liquidate with gas greater than 100');
+	    continue;
         }
 
         if (profit.gt(0)) {
-        // if (true) {
             console.log(constants.CONSOLE_GREEN, `LIQUIDATING ACCOUNT ${account.address}`);
-            liquidateAccount(account.address,
-				borrowedMarketData,
-				suppliedMarketData,
-				repayAmount,
-				seizeAmount,
-				shortfallEth,
-				repaySupplyWasLarger).then(() => {
+            liquidateAccount(
+		account.address,
+		borrowedMarketData,
+		suppliedMarketData,
+		repayAmount,
+		seizeAmount,
+		shortfallEth,
+		repaySupplyWasLarger
+            ).then(() => {
                 // noop
             });
             account.liquidated = true;
@@ -583,7 +609,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
         let token = await tokens.TokenFactory.loadToken(cTokenContract.address);
 
         let underlyingToken;
-        if (cTokenContract.address !== '0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5') {
+        if (cTokenContract.address !== CETH_ADDRESS) {
             let underlying = await cTokenContract.underlying();
             underlyingToken = await tokens.TokenFactory.getTokenByAddress(underlying);
         } else {
@@ -912,7 +938,7 @@ const getLiquidator = async () => {
 }
 
 const getUniswapFactory = async () => {
-	uniswapFactoryContractGlobal = await ethers.getContractAt("IUniswapV2Factory", "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f");
+	uniswapFactoryContractGlobal = await ethers.getContractAt("IUniswapV2Factory", UNISWAP_FACTORY_ADDRESS);
 	return uniswapFactoryContractGlobal;
 }
 
