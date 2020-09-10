@@ -32,7 +32,11 @@ const CETH_ADDRESS = '0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5';
 
 const EXPONENT = constants.TEN.pow(18); // Compound math expScale
 
-const LIQUIDATE_GAS_ESTIMATE = ethers.BigNumber.from(20**6);
+const LIQUIDATE_GAS_ESTIMATE = ethers.BigNumber.from(500000);
+
+const slackURL = 'https://hooks.slack.com/services/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';
+
+const ETHERSCAN_API_KEY = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
 
 let CLOSE_FACTOR_MANTISSA = undefined;
 let LIQUIDATION_INCENTIVE_MANTISSA = undefined;
@@ -40,21 +44,25 @@ let LIQUIDATION_INCENTIVE_MANTISSA = undefined;
 let comptrollerContractGlobal = undefined;
 let liquidatorContractGlobal = undefined;
 let uniswapFactoryContractGlobal = undefined;
+let operatingAccountGlobal = undefined;
+let operatingAccountBalanceGlobal = undefined;
 
 let accountsGlobal = {};
-
-const slackURL = 'https://hooks.slack.com/services/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';
-
-const ETHERSCAN_API_KEY = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
 
 let gasPriceGlobal = undefined;
 
 let isLiveGlobal = false;
 
+let didLiquidateAlready = false; // TODO remove when contract has gas tracking
+
 // Start code
 
 const liquidationRecords = [];
-const addLiquadationRecord = (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, estimatedSeizeAmount, shortfallEth, repaySupplyWasLarger, reserveIn, reserveOut, amountIn, err) => {
+const addLiquidationRecord = (
+    account, borrowedMarket, collateralMarket, 
+    repayBorrowAmount, seizeAmount, estimatedSeizeAmount, shortfallEth, 
+    repaySupplyWasLarger, reserveIn, reserveOut, amountIn, err
+) => {
 	liquidationRecords.push({
 		account,
 		borrowedMarket,
@@ -90,7 +98,8 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
     // Confirm the liquidity before we send this off
     let comptrollerContract = comptrollerContractGlobal;
     let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(account);
-    let [err2, estimatedSeizeAmount] = await comptrollerContractGlobal.liquidateCalculateSeizeTokens(borrowedMarket.address, collateralMarket.address, repayBorrowAmount);
+    let [err2, estimatedSeizeAmount] = await comptrollerContractGlobal.liquidateCalculateSeizeTokens(
+        borrowedMarket.address, collateralMarket.address, repayBorrowAmount);
 
     let ethToken = tokens.TokenFactory.getEthToken();
     let color = shortfallEth.eq(shortfall) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
@@ -101,21 +110,22 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 
     // TODO remove when new contract deployed
     if (collateralMarket.address === borrowedMarket.address) {
-	    console.log('CANNOT LIQUIDATE SAME TOKEN');
-	    return;
+	console.log('CANNOT LIQUIDATE SAME TOKEN');
+	return;
     }
 
-    // Todo account for same token pair
+    // TODO remove with v2 contract deploy
+    if (borrowedMarket.underlyingToken.address === USDT_ADDRESS || collateralMarket.underlyingToken.address === USDT_ADDRESS) {
+	console.log('CANNOT LIQUIDATE USDT token rn');
+	return;
+    }
+
+    // TODO account for same token pair
     const uniswapBorrowTokenAddress = borrowedMarket.underlyingToken.address === ethToken.address ? WETH_ADDRESS : borrowedMarket.underlyingToken.address;
     const uniswapCollateralTokenAddress = collateralMarket.underlyingToken.address === ethToken.address ? WETH_ADDRESS : collateralMarket.underlyingToken.address;
     const uniswapPair = await getUniswapPair(uniswapBorrowTokenAddress, uniswapCollateralTokenAddress);
     const [reserve0, reserve1, ts] = await uniswapPair.getReserves();
     const token0 = await uniswapPair.token0();
-
-    if (uniswapBorrowTokenAddress === USDT_ADDRESS || uniswapCollateralTokenAddress === USDT_ADDRESS) {
-	console.log('CANNOT LIQUIDATE USDT token rn');
-	return;
-    }
 
     const reserveOut = uniswapBorrowTokenAddress === token0 ? reserve0 : reserve1;
     const reserveIn = uniswapBorrowTokenAddress === token0 ? reserve1 : reserve0;
@@ -133,6 +143,12 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 	console.log(`Did not seize enough repay uniswap for account: ${account}`);
 	return;
     }
+
+    if (didLiquidateAlready) {
+        console.log(`Not liquidating account ${account} - already liquidated this run`);
+        return;
+    }
+    didLiquidateAlready = true;
 
     let error = '';
     try {
@@ -159,7 +175,7 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
         error = `${err}`;
 	await sendMessage('LIQUIDATION', `FAILED TO LIQUIDATE ACCOUNT ${account} ${err}`);
     } finally {
-	addLiquadationRecord(
+	addLiquidationRecord(
 	    account,
 	    borrowedMarket.underlyingToken.symbol,
 	    collateralMarket.underlyingToken.symbol,
@@ -193,19 +209,14 @@ const getUniswapPair = async (borrowMarketUnderlyingAddress, collateralMarketUnd
 const doLiquidation = (accounts, markets) => {
     let ethToken = tokens.TokenFactory.getEthToken();
 
-    const liquidationGasCost = ethers.utils.parseEther((Math.ceil(ethToken.price) + ''))
-        .mul(constants.LIQUIDATION_GAS_LIMIT)
-        .mul(gasPriceGlobal)
-        .div(EXPONENT);
+    const liquidationGasCost = LIQUIDATE_GAS_ESTIMATE.mul(gasPriceGlobal);
 
     for (let account of Object.values(accounts)) {
         if (account.liquidated) {
             continue; // Prevent double tap
         }
 
-        let accountConsoleLine = ''; // dont print anything until the account is interesting
-
-        accountConsoleLines = [`LIQUIDATION CANDIDATE ${account.address}`];
+        let accountConsoleLines = [`LIQUIDATION CANDIDATE ${account.address}`];
 
         let totalBorrowedEth = constants.ZERO;
         let totalSuppliedEth = constants.ZERO;
@@ -340,14 +351,19 @@ const doLiquidation = (accounts, markets) => {
 
         let revenue = seizeAmountEth.sub(repayAmountEth);
         console.log(`++ REVENUE  ${ethToken.formatAmount(revenue)} USD`);
-        console.log(`++ GAS COST ${ethToken.formatAmount(liquidationGasCost)} USD`);
-        let profit = revenue.sub(liquidationGasCost);
+
+        // Calculate gas costs
+        let ethPrice = markets[CETH_ADDRESS]._data.underlyingPrice; // get the 
+        let liquidationGasCostUSD = liquidationGasCost.mul(ethPrice).div(EXPONENT);
+        console.log(`++ GAS COST ${ethToken.formatAmount(liquidationGasCostUSD)} USD / ${ethers.utils.formatEther(liquidationGasCost)} ETH (${LIQUIDATE_GAS_ESTIMATE} @ ${ethers.utils.formatUnits(gasPriceGlobal, 'gwei')} gwei) (${ethers.utils.formatEther(operatingAccountBalanceGlobal)} avail.)`);
+
+        // Calculate profit
+        let profit = revenue.sub(liquidationGasCostUSD);
         let profitColor = profit.gt(0) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
         console.log(profitColor, `++ PROFIT ${ethToken.formatAmount(profit)} USD`);
 
-        // TODO fetch account balance
-        if (liquidationGasCost.gt(ethers.utils.parseEther('80'))) {
-	    console.log('cant liquidate with gas greater than 100');
+        if (liquidationGasCost.gt(operatingAccountBalanceGlobal)) {
+	    console.log('cant liquidate with gas greater than account balance');
 	    continue;
         }
 
@@ -971,8 +987,10 @@ const run = async () => {
 
     let signers = await ethers.getSigners();
     let operatingAccount = signers[0];
+    operatingAccountGlobal = operatingAccount;
     let operatingAddress = await operatingAccount.getAddress();
     let operatorBalance = await ethers.provider.getBalance(operatingAddress);
+    operatingAccountBalanceGlobal = operatorBalance;
 
     console.log(`OPERATING ACCOUNT ${operatingAddress} BALANCE ${ethers.utils.formatEther(operatorBalance)}`); 
 
@@ -1006,13 +1024,13 @@ const run = async () => {
     let lastBlock = startBlock;
 
     while (true) {
-    	// Just log to csv everytime
-		(async () => {
-			const csv = new ObjectsToCsv(liquidationRecords);
+    	// Just log to csv everytime, TODO remove after validating
+	(async () => {
+	    const csv = new ObjectsToCsv(liquidationRecords);
 
-			// Save to file:
-			await csv.toDisk('./liquidationRecords.csv');
-		})();
+	    // Save to file:
+	    await csv.toDisk('./liquidationRecords.csv');
+	})();
 
         // fetch the latest block
         let blockNumber = await ethers.provider.getBlockNumber();

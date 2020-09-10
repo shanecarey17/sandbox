@@ -70,7 +70,7 @@ describe("Liquidator", async () => {
         // expect(await comptrollerContract.oracle()).to.equal(oracleContract.address);
     });
 
-    it.only('test zap', async () => {
+    it('test zap', async () => {
         await liquidatorContract.enterMarkets(COMPTROLLER_ADDRESS, [CDAI, CZRX]);
         let result = await liquidatorContract.liquidate(
             "0x055F9D6A6071A603B80c6403DdA60cb10C769999",
@@ -331,7 +331,7 @@ describe("Liquidator", async () => {
         expect(newOwnerZrxBalance.sub(prevOwnerZrxBalance)).to.equal(strategyZrxBalance);
     });
 
-    it.only('DAI-ZRX', async () => {
+    it('DAI-ZRX', async () => {
         let signers = await ethers.getSigners();
         const borrowingAccount = signers[2];
         const borrowAccountAddress = await borrowingAccount.getAddress();
