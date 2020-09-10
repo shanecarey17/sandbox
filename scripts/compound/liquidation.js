@@ -6,9 +6,9 @@ const fs = require('fs');
 const util = require('util');
 const ObjectsToCsv = require('objects-to-csv');
 
-const {ethers, deployments} = require("@nomiclabs/buidler");
+const bre = require("@nomiclabs/buidler");
+const {ethers, deployments} = bre;
 
-const wallet = require('./../wallet.js');
 const tokens = require('./../tokens.js');
 const constants = require('./../constants.js');
 
@@ -602,7 +602,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
     let allMarkets = {};
 
     for (let marketAddress of markets) {
-        let cTokenContract = new ethers.Contract(marketAddress, CTOKEN_ABI, wallet);
+        let cTokenContract = new ethers.Contract(marketAddress, CTOKEN_ABI, ethers.provider);
 
         await cTokenContract.deployed();
 
@@ -902,7 +902,7 @@ const getAccounts = async (markets, blockNumber) => {
 }
 
 const getComptroller = async () => {
-    let comptrollerContract = new ethers.Contract(COMPTROLLER_ADDRESS, COMPTROLLER_ABI, wallet);
+    let comptrollerContract = new ethers.Contract(COMPTROLLER_ADDRESS, COMPTROLLER_ABI, ethers.provider);
 
     await comptrollerContract.deployed();
 
@@ -920,17 +920,21 @@ const getComptroller = async () => {
 }
 
 const getUniswapOracle = async () => {
-    let uniswapAnchoredViewContract = new ethers.Contract(UNISWAP_ANCHORED_VIEW_ADDRESS, UNISWAP_ANCHORED_VIEW_ABI, wallet);
+    let uniswapAnchoredViewContract = new ethers.Contract(UNISWAP_ANCHORED_VIEW_ADDRESS, UNISWAP_ANCHORED_VIEW_ABI, ethers.provider);
 
     await uniswapAnchoredViewContract.deployed();
 
     return uniswapAnchoredViewContract;
 }
 
-const getLiquidator = async () => {
+const getLiquidator = async (operatingAccount) => {
     const liqDeployment = await deployments.get("CompoundLiquidator");
 
-    liquidatorContractGlobal = await ethers.getContractAt("CompoundLiquidator", liqDeployment.address);
+    // Connect this contract to the operating signer, this is the only contract to which we send signed transactions
+    liquidatorContractGlobal = await ethers.getContractAt("CompoundLiquidator", liqDeployment.address, operatingAccount);
+
+    let operatingAddress = await operatingAccount.getAddress();
+    assert(await liquidatorContractGlobal.owner() == operatingAddress);
 
     console.log(`LIQUIDATOR DEPLOYED @ ${liquidatorContractGlobal.address}`);
 
@@ -972,8 +976,7 @@ const run = async () => {
 
     console.log(`OPERATING ACCOUNT ${operatingAddress} BALANCE ${ethers.utils.formatEther(operatorBalance)}`); 
 
-    let liquidator = await getLiquidator();
-    assert(await liquidator.owner() == operatingAddress);
+    let liquidator = await getLiquidator(operatingAccount);
 
     await tokens.TokenFactory.init();
 
@@ -1088,6 +1091,10 @@ const run = async () => {
 }
 
 module.exports = async (isLive) => {
+    console.log("COMPILING...");
+    
+    await bre.run("compile");
+
     console.log(`STARTING live=${isLive}`);
 
     isLiveGlobal = isLive;

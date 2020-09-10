@@ -4,7 +4,6 @@ const axios = require('axios');
 const ethers = require("@nomiclabs/buidler").ethers;
 const readline = require('readline');
 
-const wallet = require('./wallet.js');
 const constants = require('./constants.js');
 
 const coinMarketCapEndpoint = 'https://pro-api.coinmarketcap.com';
@@ -79,7 +78,7 @@ function TokenFactory() {
         var decimals = ethers.BigNumber.from(18);
 
         if (address != constants.ETH_ADDRESS) {
-            contract = await ethers.getContractAt('MyERC20', address, wallet);
+            contract = await ethers.getContractAt('MyERC20', address);
             decimals = await contract.decimals();
             symbol = '';
 
