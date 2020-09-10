@@ -9,7 +9,7 @@ const MNEMONIC = fs.readFileSync('.secret').toString().trim();
 const INFURA_URL = 'https://mainnet.infura.io/v3/e4aa52bf76a948ea92ae7772d299aef0'; // Chris
 //const INFURA_URL = 'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d'; // Shane
 
-const MAINNET_KEY = fs.readFileSync('.mainnet.key').toString().trim();
+const MAINNET_KEY = process.env.PRIVATE_KEY; // fs.readFileSync('.mainnet.key').toString().trim();
 
 const log4js = require('log4js');
 
