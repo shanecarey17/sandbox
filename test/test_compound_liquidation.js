@@ -28,6 +28,63 @@ const ZRX_WHALE = "0xf38da89048346b33527617dc1deb592921bb6c83";
 const WETH = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
 const ZRX = "0xE41d2489571d322189246DaFA5ebDe1F4699F498";
 
+describe.skip("TestZap", async () => {
+    let liquidatorContract;
+    let comptrollerContract;
+    let oracleContract;
+
+    let ownerAccount;
+    let ownerAccountAddress;
+
+    before(async () => {
+        let signers = await ethers.getSigners();
+        ownerAccount = signers[0];
+        ownerAccountAddress = await ownerAccount.getAddress();
+
+        // Deploy liquidator
+        await deployments.fixture('liquidator'); // tag
+        const liqDeployment = await deployments.get("CompoundLiquidator");
+        const liquidator = await ethers.getContractAt("CompoundLiquidator", liqDeployment.address);
+        liquidatorContract = liquidator;
+
+        // Get comptroller
+        comptrollerContract = await ethers.getContractAt("IComptroller", COMPTROLLER_ADDRESS);
+
+        // Setup oracle
+        let oracleFactory = await ethers.getContractFactory("TestCompoundPriceOracle");
+        oracleContract = await oracleFactory.deploy();
+
+        // give some gas to set oracle
+        await signers[9].sendTransaction({
+            to: COMPTROLLER_ADMIN,
+            value: ethers2.utils.parseEther('0.1'),
+        });
+
+        await signers[9].sendTransaction({
+            to: DAI_WHALE,
+            value: ethers2.utils.parseEther('0.1')
+        });
+
+        let compAdmin = await ethers.provider.getSigner(COMPTROLLER_ADMIN);
+        //await comptrollerContract.connect(compAdmin)._setPriceOracle(oracleContract.address);
+        //expect(await comptrollerContract.oracle()).to.equal(oracleContract.address);
+    });
+
+    it('test zap', async () => {
+        await liquidatorContract.enterMarkets(COMPTROLLER_ADDRESS, [CDAI, CZRX]);
+        let result = await liquidatorContract.liquidate(
+            "0x055F9D6A6071A603B80c6403DdA60cb10C769999",
+            CDAI,
+            CZRX,
+            "156079920845855000000",
+            {
+                gasLimit: 5 * 10**6, // estimate gas on ganache has bug
+            }
+        );
+        console.log(result);
+    });
+});
+
 describe("Liquidator", async () => {
     let liquidatorContract;
     let comptrollerContract;
@@ -68,20 +125,6 @@ describe("Liquidator", async () => {
         let compAdmin = await ethers.provider.getSigner(COMPTROLLER_ADMIN);
         await comptrollerContract.connect(compAdmin)._setPriceOracle(oracleContract.address);
         expect(await comptrollerContract.oracle()).to.equal(oracleContract.address);
-    });
-
-    it('test zap', async () => {
-        await liquidatorContract.enterMarkets(COMPTROLLER_ADDRESS, [CDAI, CZRX]);
-        let result = await liquidatorContract.liquidate(
-            "0x055F9D6A6071A603B80c6403DdA60cb10C769999",
-            CDAI,
-            CZRX,
-            "156079920845855000000",
-            {
-                gasLimit: 5 * 10**6, // estimate gas on ganache has bug
-            }
-        );
-        console.log(result);
     });
 
     it('DAI-DAI', async () => {
