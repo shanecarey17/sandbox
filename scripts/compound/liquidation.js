@@ -32,7 +32,7 @@ const CETH_ADDRESS = '0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5';
 
 const EXPONENT = constants.TEN.pow(18); // Compound math expScale
 
-const LIQUIDATE_GAS_ESTIMATE = ethers.BigNumber.from(500000);
+const LIQUIDATE_GAS_ESTIMATE = ethers.BigNumber.from(1200000); // from ganache test
 
 const slackURL = 'https://hooks.slack.com/services/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';
 
