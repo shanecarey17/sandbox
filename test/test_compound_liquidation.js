@@ -66,8 +66,8 @@ describe("Liquidator", async () => {
         });
 
         let compAdmin = await ethers.provider.getSigner(COMPTROLLER_ADMIN);
-        // await comptrollerContract.connect(compAdmin)._setPriceOracle(oracleContract.address);
-        // expect(await comptrollerContract.oracle()).to.equal(oracleContract.address);
+        await comptrollerContract.connect(compAdmin)._setPriceOracle(oracleContract.address);
+        expect(await comptrollerContract.oracle()).to.equal(oracleContract.address);
     });
 
     it('test zap', async () => {
