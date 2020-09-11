@@ -977,22 +977,38 @@ const updateGasPrice = async () => {
         console.log(`GAS RESULT (provider) ${ethers.utils.formatUnits(gasPriceGlobal, 'gwei')}`);
     }
 
-    await new Promise( resolve => setTimeout( resolve, 30 * 1000 ) );
+    let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
+    task.then(() => updateGasPrice());
+}
 
-    updateGasPrice();
+const loadOperatingAccount = async () => {
+    // Load the operating address, 0th in buidler configuration
+    let signers = await ethers.getSigners();
+    let operatingAccount = signers[0];
+    operatingAccountGlobal = operatingAccount;
+
+    let operatingAddress = await operatingAccount.getAddress();
+    await updateAccountBalance(operatingAddress);
+
+    return operatingAccount;
+}
+
+const updateAccountBalance = async (operatingAddress) => {
+    let operatorBalance = await ethers.provider.getBalance(operatingAddress);
+    operatingAccountBalanceGlobal = operatorBalance;
+
+    console.log(`OPERATING ACCOUNT ${operatingAddress} BALANCE ${ethers.utils.formatEther(operatorBalance)}`);
+
+    let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
+    task.then(() => updateAccountBalance(operatingAddress));
+
+    return operatorBalance;
 }
 
 const run = async () => {
     await sendMessage('LIQUIDATOR', 'starting...');
 
-    let signers = await ethers.getSigners();
-    let operatingAccount = signers[0];
-    operatingAccountGlobal = operatingAccount;
-    let operatingAddress = await operatingAccount.getAddress();
-    let operatorBalance = await ethers.provider.getBalance(operatingAddress);
-    operatingAccountBalanceGlobal = operatorBalance;
-
-    console.log(`OPERATING ACCOUNT ${operatingAddress} BALANCE ${ethers.utils.formatEther(operatorBalance)}`); 
+    let operatingAccount = await loadOperatingAccount();
 
     let liquidator = await getLiquidator(operatingAccount);
 
