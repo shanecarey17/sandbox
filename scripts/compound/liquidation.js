@@ -85,6 +85,10 @@ const addLiquidationRecord = (
 const sendMessage = async (subject, message) => {
     console.log(`SENDING MESSAGE: ${message}`);
 
+    if (!isLiveGlobal) {
+        return; // dont send a message in dev
+    }
+
     let data = {
         username: 'LiquidatorBot',
 	text: message,
@@ -105,6 +109,7 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
     let color = shortfallEth.eq(shortfall) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
     console.log(color, `ACCOUNT ${account} SHORTFALL EXPECTED ${ethToken.formatAmount(shortfallEth)} ACTUAL ${ethToken.formatAmount(shortfall)}`);
     if (shortfall.eq(0)) {
+        // TODO print all info
         throw new Error(`expected shortfall when comptroller shows none! ${account}`);
     }
 
@@ -144,6 +149,7 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 	return;
     }
 
+    // TODO remove when we support multiple liquidations in a run
     if (didLiquidateAlready) {
         console.log(`Not liquidating account ${account} - already liquidated this run`);
         return;
@@ -199,11 +205,11 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 // TODO add caching
 const uniswapPairs = {};
 const getUniswapPair = async (borrowMarketUnderlyingAddress, collateralMarketUnderlyingAddress) => {
-	let pairAddress = await uniswapFactoryContractGlobal.getPair(
-		borrowMarketUnderlyingAddress,
-		collateralMarketUnderlyingAddress
-	);
-	return await ethers.getContractAt("IUniswapV2Pair", pairAddress);
+    let pairAddress = await uniswapFactoryContractGlobal.getPair(
+	    borrowMarketUnderlyingAddress,
+	    collateralMarketUnderlyingAddress
+    );
+    return await ethers.getContractAt("IUniswapV2Pair", pairAddress);
 };
 
 const doLiquidation = (accounts, markets) => {
@@ -245,7 +251,8 @@ const doLiquidation = (accounts, markets) => {
                                     .div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
 
             let consoleLine = `++ ${marketData.underlyingToken.formatAmount(borrowedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketBorrowedEth)} USD borrowed \t`;
-            consoleLine += `${marketData.token.formatAmount(accountMarket.tokens)} ${marketData.token.symbol} => ${marketData.underlyingToken.formatAmount(suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketSuppliedEth)} USD supplied @(${ethToken.formatAmount(marketData.collateralFactor)})`
+            let exchRateFmt = marketData.getExchangeRate() / 10**(18 + (marketData.underlyingToken.decimals - marketData.token.decimals));
+            consoleLine += `${marketData.token.formatAmount(accountMarket.tokens)} ${marketData.token.symbol} @${exchRateFmt} => ${marketData.underlyingToken.formatAmount(suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketSuppliedEth)} USD supplied @(${ethToken.formatAmount(marketData.collateralFactor)})`
             accountConsoleLines.push(consoleLine);
 
             totalBorrowedEth = totalBorrowedEth.add(marketBorrowedEth);
@@ -645,10 +652,25 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
         ]);
 
         let underlyingPrice = await priceOracleContract.getUnderlyingPrice(marketAddress, overrides);
-
         underlyingPrice = underlyingPrice.div(constants.TEN.pow(18 - underlyingToken.decimals));
 
         let [isListed, collateralFactor] = await comptrollerContract.markets(marketAddress, overrides);
+
+        let exchangeRate = await cTokenContract.exchangeRateStored(overrides);
+
+        let reserveFactor = await cTokenContract.reserveFactorMantissa();
+
+        console.log(`cTOKEN ${underlyingToken.symbol} 
+            address ${cTokenContract.address}
+            totalSupply ${token.formatAmount(totalSupply)} ${token.symbol}
+            totalBorrow ${underlyingToken.formatAmount(totalBorrows)} ${underlyingToken.symbol}
+            totalCash ${underlyingToken.formatAmount(totalCash)} ${underlyingToken.symbol}
+            totalReserves ${underlyingToken.formatAmount(totalReserves)} ${underlyingToken.symbol}
+            exchangeRate ${exchangeRate / (10**(18 + (underlyingToken.decimals - token.decimals)))} ${token.symbol}/${underlyingToken.symbol}
+            borrowIndex ${ethers.utils.formatEther(borrowIndex)}
+            underlyingPrice ${tokens.TokenFactory.getEthToken().formatAmount(underlyingPrice)} USD
+            collateralFactor ${ethers.utils.formatEther(collateralFactor)}
+            reserveFactor ${ethers.utils.formatEther(reserveFactor)}`);
 
         cTokenContract._data = new (function() {
             this.address = cTokenContract.address;
@@ -666,6 +688,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
             this.underlyingPrice = underlyingPrice;
 
             this.collateralFactor = collateralFactor;
+            this.reserveFactor = reserveFactor;
 
             this.getExchangeRate = () => {
                 return this.totalCash.add(this.totalBorrows)
@@ -677,6 +700,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
             this.doAccrueInterest = (interestAccumulated, borrowIndexNew, totalBorrowsNew) => {
 		this.borrowIndex = borrowIndexNew;
 		this.totalBorrows = totalBorrowsNew;
+                this.totalReserves = this.totalReserves.add(interestAccumulated.mul(this.reserveFactor).div(EXPONENT));
 
 		console.log(`[${this.underlyingToken.symbol}] ACCRUE_INTEREST
 		    ${this.token.formatAmount(borrowIndexNew)} borrowIndex
@@ -819,19 +843,6 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
             // End constructor
         })();
 
-        let exchangeRate = await cTokenContract.exchangeRateStored(overrides);
-
-        console.log(`cTOKEN ${underlyingToken.symbol} 
-            address ${cTokenContract.address}
-            exchangeRate ${cTokenContract._data.getExchangeRate().toString()} CONFIRMED
-            totalSupply ${token.formatAmount(totalSupply)} ${token.symbol}
-            totalBorrow ${underlyingToken.formatAmount(totalBorrows)} ${underlyingToken.symbol}
-            totalCash ${underlyingToken.formatAmount(totalCash)} ${underlyingToken.symbol}
-            borrowIndex ${borrowIndex.toString()}
-            underlyingPrice ${tokens.TokenFactory.getEthToken().formatAmount(underlyingPrice)} ETH
-            collateralFactor ${collateralFactor.toString()}`);
-
-        assert(cTokenContract._data.getExchangeRate().eq(exchangeRate));
 
         allMarkets[cTokenContract.address] = cTokenContract;
     }
