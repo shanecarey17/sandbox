@@ -39,7 +39,7 @@ const CETH_ADDRESS = ethers.utils.getAddress('0x4Ddc2D193948926D02f9B1fE9e1daa07
 
 const EXPONENT = constants.TEN.pow(18); // Compound math expScale
 
-const LIQUIDATE_GAS_ESTIMATE = ethers.BigNumber.from(2000000); // from ganache test
+const LIQUIDATE_GAS_ESTIMATE = ethers.BigNumber.from(1200000); // from ganache test
 
 const slackURL = 'https://hooks.slack.com/services/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';
 
