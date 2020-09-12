@@ -47,5 +47,7 @@ describe("LiquidatorWrapper", async () => {
 				gasLimit: 5	 * 10**6, // estimate gas on ganache has bug
 			}
 		);
+		let txDone = await result.wait();
+		console.log(`GAS USED ${txDone.gasUsed.toString()}`);
 	});
 });
