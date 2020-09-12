@@ -54,6 +54,7 @@ let uniswapFactoryContractGlobal = undefined;
 let operatingAccountGlobal = undefined;
 let operatingAccountBalanceGlobal = undefined;
 
+let marketsGlobal = {};
 let accountsGlobal = {};
 
 let gasPriceGlobal = undefined;
@@ -220,7 +221,10 @@ const getUniswapPair = async (borrowMarketUnderlyingAddress, collateralMarketUnd
     return await ethers.getContractAt("IUniswapV2Pair", pairAddress);
 };
 
-const doLiquidation = (accounts, markets) => {
+const doLiquidation = () => {
+    let accounts = accountsGlobal;
+    let markets = marketsGlobal;
+
     let ethToken = tokens.TokenFactory.getEthToken();
 
     const liquidationGasCost = LIQUIDATE_GAS_ESTIMATE.mul(gasPriceGlobal);
@@ -239,7 +243,7 @@ const doLiquidation = (accounts, markets) => {
         let suppliedMarkets = [];
 
         for (let [marketAddress, accountMarket] of Object.entries(account)) {
-            if (marketAddress === 'address') {
+            if (marketAddress === 'address' || marketAddress === 'liquidated') {
                 continue; // TODO fix hack
             }
 
@@ -425,12 +429,39 @@ const onPriceUpdated = (symbol, price, markets) => {
     console.log(`NO MARKET FOR UPDATED PRICE ${symbol} ${price}`);
 }
 
+const onMarketEntered = ({cToken, account}) => {
+    let marketData = marketsGlobal[cToken]._data;
+
+    console.log('[${marketData.underlyingToken.symbol}] MARKET_ENTERED ${account}');
+
+    if (!(account in accountsGlobal)) {
+        return;
+    }
+
+    accountsGlobal[account][cToken] = {
+	marketAddress: cToken,
+	tokens: constants.ZERO,
+	borrows: constants.ZERO,
+	borrowIndex: constants.ZERO,
+    };
+}
+
+const onMarketExited = ({cToken, account}) => {
+    let marketData = marketsGlobal[cToken]._data;
+
+    console.log('[${marketData.underlyingToken.symbol}] MARKET_EXITED ${account}');
+
+    if (account in accountsGlobal) {
+        delete accountsGlobal[account][cToken];
+    }
+}
+
 const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber) => {
     let accounts = accountsGlobal;
 
     let markets = await comptrollerContract.getAllMarkets();
 
-    let allMarkets = {};
+    let allMarkets = marketsGlobal;
 
     for (let marketAddress of markets) {
         let marketAbi = (marketAddress == CUSDT_ADDRESS || marketAddress == CDAI_ADDRESS) ? CTOKEN_V2_ABI : CTOKEN_V1_ABI;
@@ -716,8 +747,10 @@ const getAccounts = async (markets, blockNumber) => {
     for (let account of allAccounts) {
         let accountAddress = ethers.utils.getAddress(account.address); // checksum case
 
-        accountsMap[accountAddress] = {};
-        accountsMap[accountAddress].address = accountAddress;
+        accountsMap[accountAddress] = { 
+            liquidated: false,
+            address: accountAddress
+        };
 
         for (let acctToken of account.tokens) {
             let marketAddress = ethers.utils.getAddress(acctToken.address);
@@ -735,7 +768,6 @@ const getAccounts = async (markets, blockNumber) => {
                     .mul(EXPONENT).div(exchangeRate),
                 borrows: underlying.parseAmount(acctToken.borrow_balance_underlying.value),
                 borrowIndex: constants.ZERO, // TODO calculate this from interest
-                liquidated: false, // set after liquidation occurs
             };
 
             accountsMap[accountAddress][marketAddress] = tracker;
@@ -903,24 +935,15 @@ const run = async () => {
         let tasks = []
 
 	for (let market of Object.values(markets)) {
-            /*
-	    let eventFilter = [
-		market.filters.AccrueInterest(),
-		market.filters.Mint(),
-		market.filters.Borrow(),
-		market.filters.RepayBorrow(),
-		market.filters.Redeem(),
-		market.filters.LiquidateBorrow(),
-		market.filters.Transfer(),
-	    ];*/
-
 	    let task = market.queryFilter('*', lastBlock + 1, blockNumber);
             tasks.push(task);
 	}
 
-        let oracleEventFilter = [uniswapOracle.filters.PriceUpdated()];
-        let oracleEventTask = uniswapOracle.queryFilter(oracleEventFilter, lastBlock + 1, blockNumber);
+        let oracleEventTask = uniswapOracle.queryFilter('*', lastBlock + 1, blockNumber);
         tasks.push(oracleEventTask);
+
+        let comptrollerEventTask = comptrollerContract.queryFilter('*', lastBlock + 1, blockNumber);
+        tasks.push(comptrollerEventTask);
 
         // wait for all tasks to finish and sort in chain order
         let allEvents = await Promise.all(tasks);
@@ -943,16 +966,20 @@ const run = async () => {
 
             console.log(`EVENT block ${ev.blockNumber} tx ${ev.transactionHash} logIdx ${ev.logIndex}`);
 
-            if (ev.address === uniswapOracle.address) {
+            if (ev.address === comptrollerContract.address) {
+                if (ev['event'] === 'MarketEntered') {
+                    onMarketEntered(ev.args);
+                } else if (ev['event'] === 'MarketExited') {
+                    onMarketExited(ev.args);
+                }
+            } else if (ev.address === uniswapOracle.address) {
                 if (ev['event'] === 'PriceUpdated') {
 		    onPriceUpdated(ev.args.symbol, ev.args.price, markets);                
                 }
             } else {
-		let market = markets[ev.address];
-		let eventHandler = market._data['do' + ev['event']]
+		let eventHandler = markets[ev.address]._data['do' + ev['event']]
 
                 try {
-                    console.log(ev.args);
 		    eventHandler(ev.args);
                 } catch (err) {
                     console.log(ev);
@@ -961,11 +988,17 @@ const run = async () => {
             }
         }
 
-        // try liquidation with updated state
-        doLiquidation(accounts, markets);
-
         // update last block
         lastBlock = blockNumber;
+
+        // dont spam the log if no events
+        if (allEvents.length == 0) {
+            console.log('NO EVENTS');
+            continue;
+        }
+
+        // try liquidation with updated state
+        doLiquidation();
     }
 }
 
