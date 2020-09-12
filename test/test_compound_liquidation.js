@@ -232,6 +232,9 @@ describe("Liquidator", async () => {
 */
         var repayBorrowAmount = ethers2.utils.parseUnits('0.2');
 
+        let prevOwnerDaiBalance = await dai.balanceOf(ownerAccountAddress); // second test, residual balance
+        console.log(`owner prev dai balance: ${prevOwnerDaiBalance.toString()}`);
+
         let result = await liquidatorContract.liquidate(
             borrowAccountAddress,
             CDAI,
@@ -246,11 +249,10 @@ describe("Liquidator", async () => {
 
         console.log(`GAS USED ${txDone.gasUsed.toString()}`);
         const strategyDaiBalance = await dai.balanceOf(liquidatorContract.address);
-        console.log(`liquidator dai balance: ${strategyDaiBalance.toString()}`);
-        expect(true).to.equal(strategyDaiBalance.gt(0));
 
-        await liquidatorContract.connect(ownerAccount).withdraw(dai.address);
-        expect(await dai.balanceOf(ownerAccountAddress)).to.equal(strategyDaiBalance);
+        let newOwnerDaiBalance = await dai.balanceOf(ownerAccountAddress); // second test, residual balance
+        console.log(`owner new dai balance: ${newOwnerDaiBalance.toString()}`);
+        expect(newOwnerDaiBalance.sub(prevOwnerDaiBalance).gt(0)).to.equal(true);
     });
 
     it('ZRX-DAI', async () => {
@@ -351,6 +353,9 @@ describe("Liquidator", async () => {
 
         var repayBorrowAmount = ethers2.utils.parseUnits('.1');
 
+        let prevOwnerZrxBalance = await zrx.balanceOf(ownerAccountAddress); // second test, residual balance
+        console.log(`owner prev zrx balance: ${prevOwnerZrxBalance.toString()}`);
+
         let result = await liquidatorContract.liquidate(
             borrowAccountAddress,
             CDAI,
@@ -362,16 +367,11 @@ describe("Liquidator", async () => {
         );
 
         let txDone = await result.wait();
-
         console.log(`GAS USED ${txDone.gasUsed.toString()}`);
-        const strategyZrxBalance = await zrx.balanceOf(liquidatorContract.address);
-        console.log(`liquidator zrx balance: ${strategyZrxBalance.toString()}`);
-        expect(true).to.equal(strategyZrxBalance.gt(0));
 
-        let prevOwnerZrxBalance = await zrx.balanceOf(ownerAccountAddress); // second test, residual balance
-        await liquidatorContract.connect(ownerAccount).withdraw(ZRX);
         let newOwnerZrxBalance = await zrx.balanceOf(ownerAccountAddress);
-        expect(newOwnerZrxBalance.sub(prevOwnerZrxBalance)).to.equal(strategyZrxBalance);
+        console.log(`owner new zrx balance: ${prevOwnerZrxBalance.toString()}`);
+        expect(newOwnerZrxBalance.sub(prevOwnerZrxBalance).gt(0)).to.equal(true);
     });
 
     it('DAI-ZRX', async () => {
@@ -465,6 +465,9 @@ describe("Liquidator", async () => {
 
         var repayBorrowAmount = ethers2.utils.parseUnits('.1');
 
+        let prevOwnerDaiBalance = await dai.balanceOf(ownerAccountAddress); // second test, residual balance
+        console.log(`owner prev dai balance: ${prevOwnerDaiBalance.toString()}`);
+
         let result = await liquidatorContract.liquidate(
             borrowAccountAddress,
             CZRX,
@@ -477,15 +480,9 @@ describe("Liquidator", async () => {
 
         let txDone = await result.wait();
 
-        console.log(`GAS USED ${txDone.gasUsed.toString()}`);
-        const strategyDaiBalance = await dai.balanceOf(liquidatorContract.address);
-        console.log(`liquidator dai balance: ${strategyDaiBalance.toString()}`);
-        expect(true).to.equal(strategyDaiBalance.gt(0));
-
-        let prevOwnerDaiBalance = await dai.balanceOf(ownerAccountAddress); // second test, residual balance
-        await liquidatorContract.connect(ownerAccount).withdraw(dai.address);
         let newOwnerDaiBalance = await dai.balanceOf(ownerAccountAddress);
-        expect(newOwnerDaiBalance.sub(prevOwnerDaiBalance)).to.equal(strategyDaiBalance);
+        console.log(`owner new dai balance: ${prevOwnerDaiBalance.toString()}`);
+        expect(newOwnerDaiBalance.sub(prevOwnerDaiBalance).gt(0)).to.equal(true);
     });
 
     it('DAI-USDC', async () => {
@@ -579,6 +576,9 @@ describe("Liquidator", async () => {
 
         var repayBorrowAmount = ethers2.utils.parseUnits('.1').div(ethers2.BigNumber.from(10).pow(12));
 
+        let prevOwnerDaiBalance = await dai.balanceOf(ownerAccountAddress); // second test, residual balance
+        console.log(`owner prev dai balance: ${prevOwnerDaiBalance.toString()}`);
+
         let result = await liquidatorContract.liquidate(
             borrowAccountAddress,
             CUSDC,
@@ -592,14 +592,10 @@ describe("Liquidator", async () => {
         let txDone = await result.wait();
 
         console.log(`GAS USED ${txDone.gasUsed.toString()}`);
-        const strategyDaiBalance = await dai.balanceOf(liquidatorContract.address);
-        console.log(`liquidator dai balance: ${strategyDaiBalance.toString()}`);
-        expect(true).to.equal(strategyDaiBalance.gt(0));
 
-        let prevOwnerDaiBalance = await dai.balanceOf(ownerAccountAddress); // second test, residual balance
-        await liquidatorContract.connect(ownerAccount).withdraw(dai.address);
         let newOwnerDaiBalance = await dai.balanceOf(ownerAccountAddress);
-        expect(newOwnerDaiBalance.sub(prevOwnerDaiBalance)).to.equal(strategyDaiBalance);
+        console.log(`owner new dai balance: ${newOwnerDaiBalance.toString()}`);
+        expect(newOwnerDaiBalance.sub(prevOwnerDaiBalance).gt(0)).to.equal(true);
     });
 
     it('DAI-WETH', async () => {
@@ -710,6 +706,9 @@ describe("Liquidator", async () => {
         var repayBorrowAmount = ethBorrowAmount.div(100);
         console.log(`repayAmount ${repayBorrowAmount}`);
 
+        let prevOwnerDaiBalance = await dai.balanceOf(ownerAccountAddress); // second test, residual balance
+        console.log(`owner prev dai balance: ${prevOwnerDaiBalance.toString()}`);
+
         let result = await liquidatorContract.liquidate(
             borrowAccountAddress,
             CETH,
@@ -723,154 +722,10 @@ describe("Liquidator", async () => {
         let txDone = await result.wait();
 
         console.log(`GAS USED ${txDone.gasUsed.toString()}`);
-        const strategyDaiBalance = await dai.balanceOf(liquidatorContract.address);
-        console.log(`liquidator dai balance: ${strategyDaiBalance.toString()}`);
-        expect(true).to.equal(strategyDaiBalance.gt(0));
 
-        let prevOwnerDaiBalance = await dai.balanceOf(ownerAccountAddress); // second test, residual balance
-        await liquidatorContract.connect(ownerAccount).withdraw(dai.address);
         let newOwnerDaiBalance = await dai.balanceOf(ownerAccountAddress);
-        expect(newOwnerDaiBalance.sub(prevOwnerDaiBalance)).to.equal(strategyDaiBalance);
-    });
-
-    it('WETH-WETH', async () => {
-        let signers = await ethers.getSigners();
-        const borrowingAccount = signers[4];
-        const borrowAccountAddress = await borrowingAccount.getAddress();
-        await comptrollerContract.connect(borrowingAccount).enterMarkets([CDAI, CETH]);
-        await liquidatorContract.enterMarkets(COMPTROLLER_ADDRESS, [CDAI, CETH]);
-
-        const pair = await ethers.getContractAt('IUniswapV2Pair', DAI_WETH_PAIR);
-        let [daiReserve, wethReserve, blockTimestampLast] = await pair.getReserves();
-        let wethToDai = daiReserve.div(wethReserve);
-        console.log(`pair initial dai reserve ${daiReserve}`);
-        console.log(`pair initial weth reserve ${wethReserve}`);
-        console.log(`dai/weth price ${wethToDai}`);
-
-        // Set prices to 1
-        let priceOne = ethers2.utils.parseEther('1');
-        // Since dai is $1 and weth/dai both have mantissa of 18, we can treat this is the weth price in $
-        let wethToDaiInEther = ethers2.utils.parseEther(wethToDai.toString());
-        await oracleContract.setUnderlyingPrice(CDAI, priceOne);
-        await oracleContract.setUnderlyingPrice(CETH, wethToDaiInEther);
-
-        expect(await oracleContract.getUnderlyingPrice(CDAI)).to.equal(priceOne);
-        expect(await oracleContract.getUnderlyingPrice(CETH)).to.equal(wethToDaiInEther);
-
-
-        const ethLendAmount = ethers2.utils.parseEther('1');
-        const ethWhale = await ethers.provider.getSigner(ETH_WHALE);
-        await ethWhale.sendTransaction({
-            to: borrowAccountAddress,
-            value: ethLendAmount,
-        });
-
-        // Mint cETH i.e. provide collateral
-        const cEth = await ethers.getContractAt('ICEther', CETH);
-        await cEth.connect(borrowingAccount).mint({value: ethLendAmount, gasLimit: 5 * 10**6});
-
-        let [cETHError, cETHBalance, cETHBorrowBalance, cETHExchangeRateMantissa] = (await cEth.getAccountSnapshot(borrowAccountAddress));
-        console.log("cETH balance after mint: ", cETHBalance.toString());
-        console.log("eth borrow balance after mint: ", cETHBorrowBalance.toString());
-        console.log("eth exchange rate mantissa after mint: ", cETHExchangeRateMantissa.toString());
-
-        // get account liquidity
-        let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(borrowAccountAddress);
-        console.log("error: ", err.toString());
-        console.log("liquidity before borrow: ", liquidity.toString());
-        console.log("liquidity before borrow: ", shortfall.toString());
-
-        let [isListed, ethCollateralFactor] = await comptrollerContract.markets(CETH);
-        console.log(`cETH collateral factor: ${ethCollateralFactor}`);
-
-        const cDai = await ethers.getContractAt('ICERC20', CDAI);
-        const daiBorrowAmount = wethToDaiInEther.mul(74).div(100);
-        console.log(`ethBorrowAmount: ${ethLendAmount}`);
-        await cDai.connect(borrowingAccount).borrow(
-            daiBorrowAmount,
-            {
-                gasLimit: 5 * 10**6, // estimate gas on ganache has bug
-            }
-        );
-
-        await cEth.connect(borrowingAccount).borrow(
-            ethLendAmount.div(2),
-            {
-                gasLimit: 5 * 10**6, // estimate gas on ganache has bug
-            }
-        )
-
-        let [cDaiError, cDAIBalance, DAIBorrowBalance, cDAIExchangeRateMantissa] = await cDai.getAccountSnapshot(borrowAccountAddress);
-        console.log("cDAI balance after borrow: ", cDAIBalance.toString());
-        console.log("DAI borrow balance after borrow: ", DAIBorrowBalance.toString());
-        console.log("cDAI exchange rate mantissa after borrow: ", cDAIExchangeRateMantissa.toString());
-
-        [cETHError, cETHBalance, cETHBorrowBalance, cETHExchangeRateMantissa] = (await cEth.getAccountSnapshot(borrowAccountAddress));
-        console.log("cETH balance after borrow: ", cETHBalance.toString());
-        console.log("eth borrow balance after borrow: ", cETHBorrowBalance.toString());
-        console.log("eth exchange rate mantissa after borrow: ", cETHExchangeRateMantissa.toString());
-
-        let [err2, liquidity2, shortfall2] = await comptrollerContract.getAccountLiquidity(borrowAccountAddress);
-        console.log("error after borrow: ", err2.toString());
-        console.log("liquidity after borrow: ", liquidity2.toString());
-        console.log("shortfall after borrow: ", shortfall2.toString());
-
-        // // Get rekt
-        // update dai price by 10%, whale should be able to cover the necessary dai amount
-        console.log('update prices');
-        const additionalWETHReserve = wethReserve.div(10);
-        console.log(`sending pair ${additionalWETHReserve} weth`);
-        const weth = await ethers.getContractAt('WETH9', WETH);
-        console.log('depositing weth');
-        await weth.connect(ethWhale).deposit({value: additionalWETHReserve, gasLimit: 5 * 10**6});
-        console.log('sending weth to pair');
-        await weth.connect(ethWhale).transfer(DAI_WETH_PAIR, additionalWETHReserve, {gasLimit: 5 * 10**6});
-        console.log(`syncing pair`);
-        await pair.sync({
-            gasLimit: 5 * 10**6
-        });
-        console.log('pair synced');
-
-        let [daiReserveUpdated, wethReserveUpdated, blockTimestampLastUpdated] = await pair.getReserves();
-        let wethToDaiUpdated = daiReserveUpdated.div(wethReserveUpdated);
-        console.log(`pair update dai reserve ${daiReserveUpdated}`);
-        console.log(`pair update weth reserve ${wethReserveUpdated}`);
-        console.log(`dai/weth update price ${wethToDaiUpdated}`);
-        let wethToDaiInEtherUpdated = ethers2.utils.parseEther(wethToDaiUpdated.toString());
-
-        console.log(`a blackswan appeared, ETH went to ${wethToDaiUpdated}`);
-        console.log(`updatedWethToDaiInEther: ${wethToDaiInEtherUpdated}`);
-        await oracleContract.setUnderlyingPrice(CETH, wethToDaiInEtherUpdated);
-        expect(await oracleContract.getUnderlyingPrice(CETH)).to.equal(wethToDaiInEtherUpdated);
-
-        let [err3, liquidity3, shortfall3] = await comptrollerContract.getAccountLiquidity(borrowAccountAddress);
-        console.log("liquidity after price change: ", liquidity3.toString());
-        console.log("shortfall after price change: ", shortfall3.toString());
-
-        const initialWethBalance = await weth.connect(liquidatorContract.address).balanceOf(liquidatorContract.address);
-        console.log(`initial weth balance: ${initialWethBalance}`);
-
-        var repayBorrowAmount = daiBorrowAmount.div(100);
-        console.log(`repayAmount ${repayBorrowAmount}`);
-
-        let result = await liquidatorContract.liquidate(
-            borrowAccountAddress,
-            CDAI,
-            CETH,
-            repayBorrowAmount,
-            {
-                gasLimit: 5 * 10**6, // estimate gas on ganache has bug
-            }
-        );
-
-        let txDone = await result.wait();
-
-        const finalWethBalance = await weth.connect(liquidatorContract.address).balanceOf(liquidatorContract.address);
-        console.log(`final weth balance: ${finalWethBalance}`);
-        expect(true).to.equal(finalWethBalance.gt(0));
-
-        await liquidatorContract.connect(ownerAccount).withdraw(weth.address);
-        expect(await weth.balanceOf(ownerAccountAddress)).to.equal(finalWethBalance);
+        console.log(`owner new dai balance: ${newOwnerDaiBalance.toString()}`);
+        expect(newOwnerDaiBalance.sub(prevOwnerDaiBalance).gt(0)).to.equal(true);
     });
 
     it('WETH-DAI', async () => {
@@ -981,6 +836,9 @@ describe("Liquidator", async () => {
         var repayBorrowAmount = daiBorrowAmount.div(100);
         console.log(`repayAmount ${repayBorrowAmount}`);
 
+        let prevOwnerWethBalance = await weth.balanceOf(ownerAccountAddress); // second test, residual balance
+        console.log(`owner prev weth balance: ${prevOwnerWethBalance.toString()}`);
+
         let result = await liquidatorContract.liquidate(
             borrowAccountAddress,
             CDAI,
@@ -993,15 +851,9 @@ describe("Liquidator", async () => {
 
         let txDone = await result.wait();
 
-        const finalWethBalance = await weth.connect(liquidatorContract.address).balanceOf(liquidatorContract.address);
-        console.log(`final weth balance: ${finalWethBalance}`);
-        expect(true).to.equal(finalWethBalance.gt(0));
-
-
-        let prevOwnerWethBalance = await weth.balanceOf(ownerAccountAddress); // second test, residual balance
-        await liquidatorContract.connect(ownerAccount).withdraw(weth.address);
         let newOwnerWethBalance = await weth.balanceOf(ownerAccountAddress);
-        expect(newOwnerWethBalance.sub(prevOwnerWethBalance)).to.equal(finalWethBalance);
+        console.log(`owner new weth balance: ${newOwnerWethBalance.toString()}`);
+        expect(newOwnerWethBalance.sub(prevOwnerWethBalance).gt(0)).to.equal(true);
     });
     
     it('WITHDRAW ETH', async () => {
@@ -1024,5 +876,18 @@ describe("Liquidator", async () => {
 
         let ownerBalance1 = await ownerAccount.getBalance();
         expect(ownerBalance1.sub(ownerBalance0).gt(ethers2.utils.parseEther('0'))).to.equal(true);
+    });
+
+    it('Add Caller', async () => {
+        let signers = await ethers.getSigners();
+        const randAccount = signers[9];
+        const randAccountAddress = await randAccount.getAddress();
+        await liquidatorContract.connect(ownerAccount).whitelistCaller(randAccountAddress);
+        const addedCaller = await liquidatorContract.callers(randAccountAddress);
+        expect(addedCaller).to.equal(true);
+
+        await liquidatorContract.connect(ownerAccount).blacklistCaller(randAccountAddress);
+        const removedCaller = await liquidatorContract.callers(randAccountAddress);
+        expect(removedCaller).to.equal(false);
     });
 });

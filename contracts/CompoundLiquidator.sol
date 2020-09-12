@@ -17,6 +17,7 @@ contract CompoundLiquidator is IUniswapV2Callee {
     address constant public DAI_ADDRESS             = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
 
     address public owner;
+    mapping(address => bool) public callers;
 
     struct Data {
         address cTokenBorrowed;
@@ -29,6 +30,7 @@ contract CompoundLiquidator is IUniswapV2Callee {
 
     constructor() public {
         owner = msg.sender;
+        callers[owner] = true;
     }
 
     // Required to receive ether
@@ -41,7 +43,7 @@ contract CompoundLiquidator is IUniswapV2Callee {
         address cTokenCollateral,
         uint256 repayBorrowAmount
     ) external returns (uint) {
-        require(owner == msg.sender, "not owner");
+        require(callers[msg.sender], "not caller");
         require(ICToken(cTokenBorrowed).comptroller() == ICToken(cTokenCollateral).comptroller(), "cTokens have different comptrollers");
         require(repayBorrowAmount > 0, "zero repayBorrowAmount");
 
@@ -201,6 +203,16 @@ contract CompoundLiquidator is IUniswapV2Callee {
         require(msg.sender == owner, "not owner");
 
         msg.sender.transfer(Utils.getBalance(address(this)));
+    }
+
+    function whitelistCaller(address _caller) external {
+        require(msg.sender == owner, "not owner");
+        callers[_caller] = true;
+    }
+
+    function blacklistCaller(address _caller) external {
+        require(msg.sender == owner, "not owner");
+        callers[_caller] = false;
     }
 
     function enterMarkets(address comptroller, address[] calldata cTokens) external returns (uint[] memory) {
