@@ -682,11 +682,11 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
             // TODO reserves reduced
 
             this.doFailure = () => {
-                // Nothing to do here
+                console.log(`[${this.underlyingToken.symbol}] FAILURE`);
             }
 
             this.doApproval = () => {
-                // Nothing to do here
+                console.log(`[${this.underlyingToken.symbol}] APPROVAL`);
             }
 
             // End constructor
