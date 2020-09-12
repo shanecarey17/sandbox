@@ -39,7 +39,7 @@ const CETH_ADDRESS = ethers.utils.getAddress('0x4Ddc2D193948926D02f9B1fE9e1daa07
 
 const EXPONENT = constants.TEN.pow(18); // Compound math expScale
 
-const LIQUIDATE_GAS_ESTIMATE = ethers.BigNumber.from(1200000); // from ganache test
+const LIQUIDATE_GAS_ESTIMATE = ethers.BigNumber.from(2000000); // from ganache test
 
 const slackURL = 'https://hooks.slack.com/services/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';
 
@@ -55,6 +55,7 @@ let operatingAccountGlobal = undefined;
 let operatingAccountBalanceGlobal = undefined;
 
 let marketsGlobal = {};
+let coinbasePricesGlobal = {};
 let accountsGlobal = {};
 
 let gasPriceGlobal = undefined;
@@ -870,6 +871,19 @@ const updateExternalPrices = async () => {
     let {coinbase, okex} = response.data;
     console.log(`FETCHED COINBASE PRICES: ${JSON.stringify(coinbase.prices)}`);
     console.log(`FETCHED OKEX PRICES: ${JSON.stringify(okex.prices)}`);
+
+    const updatedCoinbasePrices = {};
+    for(let i = 0; i < coinbase.messages.length; i++) {
+		let [kind, timestamp, symbol, price] = ethers.utils.defaultAbiCoder.decode(['string', 'uint64', 'string', 'uint64'], coinbase.messages[i]);
+		updatedCoinbasePrices[symbol] = {
+			message: coinbase.messages[i],
+			signature: coinbase.signatures[i],
+			symbol,
+			rawPrice: price, // this is the raw price, same as what comes thru on onPriceUpdate
+			timestamp,
+		}
+	}
+	coinbasePricesGlobal = updatedCoinbasePrices;
     
     let task = new Promise(resolve => setTimeout(resolve, 10 * 1000));
     task.then(() => updateExternalPrices());
