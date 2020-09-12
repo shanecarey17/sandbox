@@ -67,9 +67,11 @@ contract CompoundLiquidator is IUniswapV2Callee {
 
         uint endBalance = MyERC20(collateralToken).balanceOf(address(this));
 
-        if (endBalance < startBalance) {
+        if (endBalance <= startBalance) {
             require(false, "nope");
         }
+
+        MyERC20(collateralToken).transfer(msg.sender, endBalance);
 
         return endBalance - startBalance;
     }
@@ -198,7 +200,7 @@ contract CompoundLiquidator is IUniswapV2Callee {
     function withdrawEth() external {
         require(msg.sender == owner, "not owner");
 
-        msg.sender.send(Utils.getBalance(address(this)));
+        msg.sender.transfer(Utils.getBalance(address(this)));
     }
 
     function enterMarkets(address comptroller, address[] calldata cTokens) external returns (uint[] memory) {

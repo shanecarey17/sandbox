@@ -1016,6 +1016,16 @@ const updateAccountBalance = async (operatingAddress) => {
     return operatorBalance;
 }
 
+const updateExternalPrices = async () => {
+    let response = await axios.get('https://prices.compound.finance');
+    let {coinbase, okex} = response.data;
+    console.log(`FETCHED COINBASE PRICES: ${JSON.stringify(coinbase.prices)}`);
+    console.log(`FETCHED OKEX PRICES: ${JSON.stringify(okex.prices)}`);
+    
+    let task = new Promise(resolve => setTimeout(resolve, 10 * 1000));
+    task.then(() => updateExternalPrices());
+}
+
 const run = async () => {
     await sendMessage('LIQUIDATOR', 'starting...');
 
@@ -1026,6 +1036,8 @@ const run = async () => {
     await tokens.TokenFactory.init();
 
     await updateGasPrice();
+
+    await updateExternalPrices();
 
     console.log('READY LITTYQUIDATOR 1');
 
