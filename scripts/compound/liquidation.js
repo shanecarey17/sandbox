@@ -978,7 +978,7 @@ const run = async () => {
                 throw new Error(`unhandled event ${JSON.stringify(ev)}`);
             }
 
-            console.log(`EVENT block ${ev.blockNumber} tx ${ev.transactionHash} logIdx ${ev.logIndex}`);
+            console.log(`EVENT tx ${ev.transactionHash} block ${ev.blockNumber} logIdx ${ev.logIndex} address ${ev.address} topics ${ev.topics}`);
 
             if (ev.address === comptrollerContract.address) {
                 if (ev['event'] === 'MarketEntered') {
