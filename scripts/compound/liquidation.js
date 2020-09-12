@@ -108,6 +108,7 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
     let ethToken = tokens.TokenFactory.getEthToken();
     let color = shortfallEth.eq(shortfall) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
     console.log(color, `ACCOUNT ${account} SHORTFALL EXPECTED ${ethToken.formatAmount(shortfallEth)} ACTUAL ${ethToken.formatAmount(shortfall)}`);
+
     if (shortfall.eq(0)) {
         // TODO print all info
         throw new Error(`expected shortfall when comptroller shows none! ${account}`);
@@ -1086,6 +1087,7 @@ const run = async () => {
         let tasks = []
 
 	for (let market of Object.values(markets)) {
+            /*
 	    let eventFilter = [
 		market.filters.AccrueInterest(),
 		market.filters.Mint(),
@@ -1094,9 +1096,9 @@ const run = async () => {
 		market.filters.Redeem(),
 		market.filters.LiquidateBorrow(),
 		market.filters.Transfer(),
-	    ];
+	    ];*/
 
-	    let task = market.queryFilter(eventFilter, lastBlock + 1, blockNumber);
+	    let task = market.queryFilter('*', lastBlock + 1, blockNumber);
             tasks.push(task);
 	}
 
@@ -1119,8 +1121,8 @@ const run = async () => {
         // apply events in order to state
         for (let ev of allEvents) {
             if (!('event' in ev)) {
-                // TODO is this safe to skip?
-                continue;
+                // possible issue with the events abi
+                throw new Error(`unhandled event ${ev}`);
             }
 
             console.log(`EVENT block ${ev.blockNumber} tx ${ev.transactionHash} logIdx ${ev.logIndex}`);
