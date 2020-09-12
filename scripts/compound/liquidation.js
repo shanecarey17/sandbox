@@ -12,23 +12,30 @@ const {ethers, deployments} = bre;
 const tokens = require('./../tokens.js');
 const constants = require('./../constants.js');
 
-const COMPTROLLER_ADDRESS = '0x3d9819210a31b4961b30ef54be2aed79b9c9cd3b';
+const COMPTROLLER_ADDRESS = ethers.utils.getAddress('0x3d9819210a31b4961b30ef54be2aed79b9c9cd3b');
 const COMPTROLLER_ABI = JSON.parse(fs.readFileSync('abi/compound/comptroller.json'));
 
-const CTOKEN_ABI = JSON.parse(fs.readFileSync('abi/compound/ctoken.json'));
+const CTOKEN_V1_ABI = JSON.parse(fs.readFileSync('abi/compound/ctoken_v1.json'));
+const CTOKEN_V2_ABI = JSON.parse(fs.readFileSync('abi/compound/ctoken_v2.json'));
 
-const PRICE_ORACLE_ADDRESS = '0xDDc46a3B076aec7ab3Fc37420A8eDd2959764Ec4';
+const PRICE_ORACLE_ADDRESS = ethers.utils.getAddress('0xDDc46a3B076aec7ab3Fc37420A8eDd2959764Ec4');
 const PRICE_ORACLE_ABI = JSON.parse(fs.readFileSync('abi/compound/priceoracle.json'));
 
-const UNISWAP_ANCHORED_VIEW_ADDRESS = '0x9B8Eb8b3d6e2e0Db36F41455185FEF7049a35CaE';
+const UNISWAP_ANCHORED_VIEW_ADDRESS = ethers.utils.getAddress('0x9B8Eb8b3d6e2e0Db36F41455185FEF7049a35CaE');
 const UNISWAP_ANCHORED_VIEW_ABI = JSON.parse(fs.readFileSync('abi/compound/uniswapanchoredview.json'));
 
-const UNISWAP_FACTORY_ADDRESS = '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f'; 
+const UNISWAP_FACTORY_ADDRESS = ethers.utils.getAddress('0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f'); 
 
-const WETH_ADDRESS = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
-const USDT_ADDRESS = '0xdac17f958d2ee523a2206206994597c13d831ec7';
+// tokens
+const WETH_ADDRESS = ethers.utils.getAddress('0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2');
+const USDT_ADDRESS = ethers.utils.getAddress('0xdac17f958d2ee523a2206206994597c13d831ec7');
 
-const CETH_ADDRESS = '0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5';
+// v2 ctokens
+const CDAI_ADDRESS = ethers.utils.getAddress('0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643');
+const CUSDT_ADDRESS = ethers.utils.getAddress('0xf650c3d88d12db855b8bf7d11be6c55a4e07dcc9');
+
+// v1 ctokens
+const CETH_ADDRESS = ethers.utils.getAddress('0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5');
 
 const EXPONENT = constants.TEN.pow(18); // Compound math expScale
 
@@ -251,10 +258,9 @@ const doLiquidation = (accounts, markets) => {
                                     .mul(marketData.underlyingPrice)
                                     .div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
 
-            let consoleLine = `++ ${marketData.underlyingToken.formatAmount(borrowedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketBorrowedEth)} USD borrowed \t`;
             let exchRateFmt = marketData.getExchangeRate() / 10**(18 + (marketData.underlyingToken.decimals - marketData.token.decimals));
-            consoleLine += `${marketData.token.formatAmount(accountMarket.tokens)} ${marketData.token.symbol} @${exchRateFmt} => ${marketData.underlyingToken.formatAmount(suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketSuppliedEth)} USD supplied @(${ethToken.formatAmount(marketData.collateralFactor)})`
-            accountConsoleLines.push(consoleLine);
+            accountConsoleLines.push(`++ ${marketData.underlyingToken.formatAmount(borrowedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketBorrowedEth)} USD borrowed`);
+            accountConsoleLines.push(`++\t${marketData.token.formatAmount(accountMarket.tokens)} ${marketData.token.symbol} @${exchRateFmt} => ${marketData.underlyingToken.formatAmount(suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketSuppliedEth)} USD supplied @(${ethToken.formatAmount(marketData.collateralFactor)})`);
 
             totalBorrowedEth = totalBorrowedEth.add(marketBorrowedEth);
             totalSuppliedEth = totalSuppliedEth.add(marketSuppliedEth);
@@ -419,205 +425,6 @@ const onPriceUpdated = (symbol, price, markets) => {
     console.log(`NO MARKET FOR UPDATED PRICE ${symbol} ${price}`);
 }
 
-/*
-const listenPricesUniswap = (markets, uniswapOracle) => {
-    uniswapOracle.on('PriceUpdated', (symbol, price) => {
-        if (symbol === 'BTC') {
-            symbol = 'WBTC';
-        }
-
-        if (symbol === 'COMP') {
-            return;
-        }
-
-        for (let market of Object.values(markets)) {
-            if (market._data.underlyingToken.symbol === symbol) {
-                // need to transform the price we receive to mirror
-                // https://github.com/compound-finance/open-oracle/blob/master/contracts/Uniswap/UniswapAnchoredView.sol#L135
-                let newPrice = price.mul(constants.TEN.pow(30)).div(constants.TEN.pow(18));
-                let oldPrice = market._data.underlyingPrice;
-
-                let ethToken = tokens.TokenFactory.getEthToken();
-                console.log(`[${symbol}] PRICE_UPDATED (raw ${price.toString()}) ${ethToken.formatAmount(oldPrice)} => ${ethToken.formatAmount(newPrice)}`);
-
-                market._data.underlyingPrice = newPrice;
-
-                return;
-            }
-        }
-
-        throw new Error("Could not find market for symbol " + symbol);
-    });
-
-    uniswapOracle.on('AnchorPriceUpdated', (symbol, anchorPrice, oldTimestamp, newTimestamp) => {
-        // Nothing to do here, yet
-    });
-}
-*/
-
-/*
-const listenMarkets = (accounts, markets) => {
-    for (let [address, contract] of Object.entries(markets)) {
-        let cTokenContract = contract;
-
-        cTokenContract.on('AccrueInterest', (interestAccumulated, borrowIndexNew, totalBorrowsNew, txInfo) => {
-            cTokenContract._data.borrowIndex = borrowIndexNew;
-            cTokenContract._data.totalBorrows = totalBorrowsNew;
-
-            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
-            console.log(`[${cTokenContract._data.underlyingToken.symbol}] ACCRUE_INTEREST
-                ${cTokenContract._data.token.formatAmount(borrowIndexNew)} borrowIndex
-                ${cTokenContract._data.underlyingToken.formatAmount(totalBorrowsNew)} ${cTokenContract._data.underlyingToken.symbol} totalBorrowsNew
-                ${cTokenContract._data.underlyingToken.formatAmount(interestAccumulated)} ${cTokenContract._data.underlyingToken.symbol} interestAccumulated`);
-        });
-
-        cTokenContract.on('Mint', (minter, mintAmount, mintTokens, txInfo) => {
-            // User supplied mintAmount to the pool and receives mintTokens cTokens in exchange
-            // Followed by Transfer event
-
-            cTokenContract._data.totalCash = cTokenContract._data.totalCash.add(mintAmount);
-
-            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
-            console.log(`[${cTokenContract._data.underlyingToken.symbol}] MINT - ${minter} 
-                ${cTokenContract._data.underlyingToken.formatAmount(mintAmount)} ${cTokenContract._data.underlyingToken.symbol} deposited
-                ${cTokenContract._data.token.formatAmount(mintTokens)} ${cTokenContract._data.token.symbol} minted
-                ${cTokenContract._data.token.formatAmount(cTokenContract._data.totalSupply)} totalSupply`);
-
-            let minterData = minter in accounts ? accounts[minter][cTokenContract.address] : undefined;
-
-            if (minterData !== undefined) {
-                minterData.tokens = minterData.tokens.add(mintTokens);
-            }
-        });
-
-        cTokenContract.on('Redeem', (redeemer, redeemAmount, redeemTokens, txInfo) => {
-            // User redeemed redeemTokens cTokens for redeemAmount underlying
-            // Preceded by Transfer event
-
-            cTokenContract._data.totalCash = cTokenContract._data.totalCash.sub(redeemAmount);
-
-            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
-            console.log(`[${cTokenContract._data.underlyingToken.symbol}] REDEEM - ${redeemer} 
-                ${cTokenContract._data.token.formatAmount(redeemTokens)} ${cTokenContract._data.token.symbol} redeemed
-                ${cTokenContract._data.underlyingToken.formatAmount(redeemAmount)} ${cTokenContract._data.underlyingToken.symbol} returned`);
-        });
-
-        cTokenContract.on('Borrow', (borrower, borrowAmount, accountBorrows, totalBorrows, txInfo) => {
-            // User borrowed borrowAmount tokens, new borrow balance is accountBorrows
-
-            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
-            console.log(`[${cTokenContract._data.underlyingToken.symbol}] BORROW ${borrower} 
-                ${cTokenContract._data.underlyingToken.formatAmount(borrowAmount)} borrowed
-                ${cTokenContract._data.underlyingToken.formatAmount(accountBorrows)} outstanding`);
-
-            cTokenContract._data.totalBorrows = totalBorrows;
-            cTokenContract._data.totalCash = cTokenContract._data.totalCash.sub(borrowAmount);
-
-            let borrowerData = borrower in accounts ? accounts[borrower][cTokenContract.address] : undefined;
-
-            if (borrowerData !== undefined) {
-                borrowerData.borrows = accountBorrows;
-                borrowerData.borrowIndex = cTokenContract._data.borrowIndex;
-            }
-        });
-
-        cTokenContract.on('RepayBorrow', (payer, borrower, repayAmount, accountBorrows, totalBorrows, txInfo) => {
-            // User repaid the borrow with repayAmount
-
-            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
-            console.log(`[${cTokenContract._data.underlyingToken.symbol}] REPAY_BORROW - ${borrower}
-                ${cTokenContract._data.underlyingToken.formatAmount(repayAmount)} repaid
-                ${cTokenContract._data.underlyingToken.formatAmount(accountBorrows)} outstanding`);
-
-            cTokenContract._data.totalBorrows = totalBorrows;
-            cTokenContract._data.totalCash = cTokenContract._data.totalCash.add(repayAmount);
-
-            let borrowerData = borrower in accounts ? accounts[borrower][cTokenContract.address] : undefined;
-
-            if (borrowerData !== undefined) {
-                borrowerData.borrows = accountBorrows;;
-            }
-        });
-
-        cTokenContract.on('LiquidateBorrow', (liquidator, borrower, repayAmount, cTokenCollateral, seizeTokens, txInfo) => {
-            // Another account liquidated the borrowing account by repaying repayAmount and seizing seizeTokens of cTokenCollateral
-            // There is an associated Transfer event
-
-            let collateralContract = markets[cTokenCollateral];
-
-            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
-            console.log(`[${cTokenContract._data.underlyingToken.symbol}] LIQUIDATE_BORROW - ${liquidator} ${borrower}
-                ${cTokenContract._data.underlyingToken.formatAmount(repayAmount)} ${cTokenContract._data.underlyingToken.symbol} repaid
-                ${collateralContract._data.token.formatAmount(seizeTokens.toString())} ${collateralContract._data.token.symbol} collateral seized`);
-
-            let borrowerData = borrower in accounts ? accounts[borrower][cTokenContract.address] : undefined;
-
-            if (borrowerData !== undefined) {
-                borrowerData.borrows = borrowerData.borrows.sub(repayAmount);
-            }
-        });
-
-        cTokenContract.on('Transfer', (src, dst, amount, txInfo) => {
-            // Token balances were adjusted by amount, if src or dst is the contract itself update totalSupply
-            let srcTracker = src in accounts ? accounts[src][cTokenContract.address] : undefined;
-            let dstTracker = dst in accounts ? accounts[dst][cTokenContract.address] : undefined;
-
-            let srcBalance = constants.ZERO;
-            let dstBalance = constants.ZERO;
-
-            if (src == cTokenContract.address) {
-                // Mint - add tokens to total supply
-                srcBalance = cTokenContract._data.totalSupply = cTokenContract._data.totalSupply.add(amount);
-            } else {
-                if (srcTracker !== undefined) {
-                    srcBalance = srcTracker.tokens = srcTracker.tokens.sub(amount);
-                }
-            }
-
-             if (dst == cTokenContract.address) {
-                // Redeem - remove tokens from total supply
-                dstBalance = cTokenContract._data.totalSupply = cTokenContract._data.totalSupply.sub(amount);
-            } else {
-                if (dstTracker !== undefined) {
-                    dstBalance = dstTracker.tokens = dstTracker.tokens.add(amount);
-                }
-            }
-
-            let underlying = cTokenContract._data.underlyingToken;
-
-            let fmtAddr = (addr) => addr == cTokenContract.address ? 'MARKET' : addr;
-
-            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
-            console.log(`[${cTokenContract._data.underlyingToken.symbol}] TRANSFER ${fmtAddr(src)} => ${fmtAddr(dst)}
-                ${cTokenContract._data.token.formatAmount(amount)} ${cTokenContract._data.token.symbol} transferred`);
-        });
-
-        // This doesnt exist?
-
-        // cTokenContract.on('ReservesAdded', (admin, amountAdded, totalReservesNew) => {
-        //     console.log(`[${cTokenContract._data.underlyingToken.symbol}] RESERVES_ADDED
-        //         +${cTokenContract._data.underlyingToken.formatAmount(amountAdded)} ${cTokenContract._data.underlyingToken.symbol}
-        //         ${cTokenContract._data.underlyingToken.formatAmount(totalReservesNew)} ${cTokenContract._data.underlyingToken.symbol}`);
-
-        //     cTokenContract._data.totalReserves = totalReservesNew;
-        //     cTokenContract._data.totalCash = cTokenContract._data.totalCash.add(amountAdded);
-        //     
-        //     //doLiquidation(accounts, markets);
-        // });
-
-        cTokenContract.on('ReservesReduced', (admin, amountReduced, totalReservesNew, txInfo) => {
-            console.log(`EVENT block ${txInfo.blockNumber} tx ${txInfo.transactionHash} logIdx ${txInfo.logIndex}`);
-            console.log(`[${cTokenContract._data.underlyingToken.symbol}] RESERVES_REDUCED
-                +${cTokenContract._data.underlyingToken.formatAmount(amountAdded)} ${cTokenContract._data.underlyingToken.symbol}
-                ${cTokenContract._data.underlyingToken.formatAmount(totalReservesNew)} ${cTokenContract._data.underlyingToken.symbol}`);
-
-            cTokenContract._data.totalReserves = totalReservesNew;
-            cTokenContract._data.totalCash = cTokenContract._data.totalCash.sub(amountReduced);
-        });
-    }
-}
-*/
-
 const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber) => {
     let accounts = accountsGlobal;
 
@@ -626,7 +433,8 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
     let allMarkets = {};
 
     for (let marketAddress of markets) {
-        let cTokenContract = new ethers.Contract(marketAddress, CTOKEN_ABI, ethers.provider);
+        let marketAbi = (marketAddress == CUSDT_ADDRESS || marketAddress == CDAI_ADDRESS) ? CTOKEN_V2_ABI : CTOKEN_V1_ABI;
+        let cTokenContract = new ethers.Contract(marketAddress, marketAbi, ethers.provider);
 
         await cTokenContract.deployed();
 
@@ -661,7 +469,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 
         let reserveFactor = await cTokenContract.reserveFactorMantissa();
 
-        console.log(`cTOKEN ${underlyingToken.symbol} 
+        console.log(`cTOKEN ${underlyingToken.symbol} (v${marketAbi === CTOKEN_V1_ABI ? '1' : '2'}) 
             address ${cTokenContract.address}
             totalSupply ${token.formatAmount(totalSupply)} ${token.symbol}
             totalBorrow ${underlyingToken.formatAmount(totalBorrows)} ${underlyingToken.symbol}
@@ -698,18 +506,19 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                     .div(this.totalSupply);
             }
 
-            this.doAccrueInterest = (interestAccumulated, borrowIndexNew, totalBorrowsNew) => {
-		this.borrowIndex = borrowIndexNew;
-		this.totalBorrows = totalBorrowsNew;
+            this.doAccrueInterest = ({interestAccumulated, borrowIndex, totalBorrows}) => {
+                // TODO do we need to use cashPrior for v2
+		this.borrowIndex = borrowIndex;
+		this.totalBorrows = totalBorrows;
                 this.totalReserves = this.totalReserves.add(interestAccumulated.mul(this.reserveFactor).div(EXPONENT));
 
 		console.log(`[${this.underlyingToken.symbol}] ACCRUE_INTEREST
-		    ${this.token.formatAmount(borrowIndexNew)} borrowIndex
-		    ${this.underlyingToken.formatAmount(totalBorrowsNew)} ${this.underlyingToken.symbol} totalBorrowsNew
+		    ${this.token.formatAmount(borrowIndex)} borrowIndex
+		    ${this.underlyingToken.formatAmount(totalBorrows)} ${this.underlyingToken.symbol} totalBorrows
 		    ${this.underlyingToken.formatAmount(interestAccumulated)} ${this.underlyingToken.symbol} interestAccumulated`);
 	    };
 
-	    this.doMint = (minter, mintAmount, mintTokens) => {
+	    this.doMint = ({minter, mintAmount, mintTokens}) => {
 		// User supplied mintAmount to the pool and receives mintTokens cTokens in exchange
 		// Followed by Transfer event
 
@@ -727,7 +536,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		}
 	    };
 
-	    this.doRedeem = (redeemer, redeemAmount, redeemTokens) => {
+	    this.doRedeem = ({redeemer, redeemAmount, redeemTokens}) => {
 		// User redeemed redeemTokens cTokens for redeemAmount underlying
 		// Preceded by Transfer event
 
@@ -738,7 +547,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		    ${this.underlyingToken.formatAmount(redeemAmount)} ${this.underlyingToken.symbol} returned`);
 	    };
 
-	    this.doBorrow = (borrower, borrowAmount, accountBorrows, totalBorrows) => {
+	    this.doBorrow = ({borrower, borrowAmount, accountBorrows, totalBorrows}) => {
 		// User borrowed borrowAmount tokens, new borrow balance is accountBorrows
 
 		console.log(`[${this.underlyingToken.symbol}] BORROW ${borrower} 
@@ -756,7 +565,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		}
 	    };
 
-	    this.doRepayBorrow = (payer, borrower, repayAmount, accountBorrows, totalBorrows) => {
+	    this.doRepayBorrow = ({payer, borrower, repayAmount, accountBorrows, totalBorrows}) => {
 		// User repaid the borrow with repayAmount
 
 		console.log(`[${this.underlyingToken.symbol}] REPAY_BORROW - ${borrower}
@@ -773,7 +582,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		}
 	    };
 
-	    this.doLiquidateBorrow = (liquidator, borrower, repayAmount, cTokenCollateral, seizeTokens) => {
+	    this.doLiquidateBorrow = ({liquidator, borrower, repayAmount, cTokenCollateral, seizeTokens}) => {
 		// Another account liquidated the borrowing account by repaying repayAmount and seizing seizeTokens of cTokenCollateral
 		// There is an associated Transfer event
 
@@ -790,7 +599,10 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		}
 	    };
 
-	    this.doTransfer = (src, dst, amount) => {
+	    this.doTransfer = ({from, to, amount}) => {
+                let src = from;
+                let dst = to;
+
 		// Token balances were adjusted by amount, if src or dst is the contract itself update totalSupply
 		let srcTracker = src in accounts ? accounts[src][cTokenContract.address] : undefined;
 		let dstTracker = dst in accounts ? accounts[dst][cTokenContract.address] : undefined;
@@ -824,14 +636,18 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		    ${this.token.formatAmount(amount)} ${this.token.symbol} transferred`);
 	    };
 
-	    this.doReservesAdded = (admin, amountReduced, totalReservesNew) => {
+            // TODO this is wrong
+            /*
+	    this.doReservesAdded = ({admin, amountReduced, totalReservesNew}) => {
 		console.log(`[${this.underlyingToken.symbol}] RESERVES_REDUCED
 		    +${this.underlyingToken.formatAmount(amountAdded)} ${this.underlyingToken.symbol}
 		    ${this.underlyingToken.formatAmount(totalReservesNew)} ${this.underlyingToken.symbol}`);
 
 		this.totalReserves = totalReservesNew;
 		this.totalCash = this.totalCash.sub(amountReduced);
-	    };
+	    };*/
+
+            // TODO reserves reduced
 
             this.doFailure = () => {
                 // Nothing to do here
@@ -1122,7 +938,7 @@ const run = async () => {
         for (let ev of allEvents) {
             if (!('event' in ev)) {
                 // possible issue with the events abi
-                throw new Error(`unhandled event ${ev}`);
+                throw new Error(`unhandled event ${JSON.stringify(ev)}`);
             }
 
             console.log(`EVENT block ${ev.blockNumber} tx ${ev.transactionHash} logIdx ${ev.logIndex}`);
@@ -1134,10 +950,14 @@ const run = async () => {
             } else {
 		let market = markets[ev.address];
 		let eventHandler = market._data['do' + ev['event']]
-		if (eventHandler === undefined) {
-		    console.log(ev);
-		}
-		eventHandler(...Object.values(ev.args));
+
+                try {
+                    console.log(ev.args);
+		    eventHandler(ev.args);
+                } catch (err) {
+                    console.log(ev);
+                    throw err;
+                }
             }
         }
 

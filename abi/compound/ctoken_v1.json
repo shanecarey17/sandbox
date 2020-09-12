@@ -40,23 +40,13 @@
     },
     {
         "constant": false,
-        "inputs": [
-            {
-                "name": "repayAmount",
-                "type": "uint256"
-            }
-        ],
-        "name": "repayBorrow",
-        "outputs": [
-            {
-                "name": "",
-                "type": "uint256"
-            }
-        ],
-        "payable": false,
-        "stateMutability": "nonpayable",
+        "inputs": [],
+        "name": "mint",
+        "outputs": [],
+        "payable": true,
+        "stateMutability": "payable",
         "type": "function",
-        "signature": "0x0e752702"
+        "signature": "0x1249c58b"
     },
     {
         "constant": true,
@@ -150,30 +140,6 @@
         "stateMutability": "nonpayable",
         "type": "function",
         "signature": "0x23b872dd"
-    },
-    {
-        "constant": false,
-        "inputs": [
-            {
-                "name": "borrower",
-                "type": "address"
-            },
-            {
-                "name": "repayAmount",
-                "type": "uint256"
-            }
-        ],
-        "name": "repayBorrowBehalf",
-        "outputs": [
-            {
-                "name": "",
-                "type": "uint256"
-            }
-        ],
-        "payable": false,
-        "stateMutability": "nonpayable",
-        "type": "function",
-        "signature": "0x2608f818"
     },
     {
         "constant": true,
@@ -276,6 +242,16 @@
         "signature": "0x47bd3718"
     },
     {
+        "constant": false,
+        "inputs": [],
+        "name": "repayBorrow",
+        "outputs": [],
+        "payable": true,
+        "stateMutability": "payable",
+        "type": "function",
+        "signature": "0x4e4d9fea"
+    },
+    {
         "constant": true,
         "inputs": [],
         "name": "comptroller",
@@ -339,21 +315,6 @@
         "stateMutability": "view",
         "type": "function",
         "signature": "0x6c540baf"
-    },
-    {
-        "constant": true,
-        "inputs": [],
-        "name": "underlying",
-        "outputs": [
-            {
-                "name": "",
-                "type": "address"
-            }
-        ],
-        "payable": false,
-        "stateMutability": "view",
-        "type": "function",
-        "signature": "0x6f307dc3"
     },
     {
         "constant": true,
@@ -462,26 +423,6 @@
     },
     {
         "constant": false,
-        "inputs": [
-            {
-                "name": "mintAmount",
-                "type": "uint256"
-            }
-        ],
-        "name": "mint",
-        "outputs": [
-            {
-                "name": "",
-                "type": "uint256"
-            }
-        ],
-        "payable": false,
-        "stateMutability": "nonpayable",
-        "type": "function",
-        "signature": "0xa0712d68"
-    },
-    {
-        "constant": false,
         "inputs": [],
         "name": "accrueInterest",
         "outputs": [
@@ -533,6 +474,25 @@
         "stateMutability": "view",
         "type": "function",
         "signature": "0xaa5af0fd"
+    },
+    {
+        "constant": false,
+        "inputs": [
+            {
+                "name": "borrower",
+                "type": "address"
+            },
+            {
+                "name": "cTokenCollateral",
+                "type": "address"
+            }
+        ],
+        "name": "liquidateBorrow",
+        "outputs": [],
+        "payable": true,
+        "stateMutability": "payable",
+        "type": "function",
+        "signature": "0xaae40a2a"
     },
     {
         "constant": true,
@@ -710,6 +670,21 @@
     },
     {
         "constant": false,
+        "inputs": [
+            {
+                "name": "borrower",
+                "type": "address"
+            }
+        ],
+        "name": "repayBorrowBehalf",
+        "outputs": [],
+        "payable": true,
+        "stateMutability": "payable",
+        "type": "function",
+        "signature": "0xe5974619"
+    },
+    {
+        "constant": false,
         "inputs": [],
         "name": "_acceptAdmin",
         "outputs": [
@@ -757,34 +732,6 @@
         "stateMutability": "view",
         "type": "function",
         "signature": "0xf3fdb15a"
-    },
-    {
-        "constant": false,
-        "inputs": [
-            {
-                "name": "borrower",
-                "type": "address"
-            },
-            {
-                "name": "repayAmount",
-                "type": "uint256"
-            },
-            {
-                "name": "cTokenCollateral",
-                "type": "address"
-            }
-        ],
-        "name": "liquidateBorrow",
-        "outputs": [
-            {
-                "name": "",
-                "type": "uint256"
-            }
-        ],
-        "payable": false,
-        "stateMutability": "nonpayable",
-        "type": "function",
-        "signature": "0xf5e3c462"
     },
     {
         "constant": true,
@@ -854,10 +801,6 @@
     {
         "inputs": [
             {
-                "name": "underlying_",
-                "type": "address"
-            },
-            {
                 "name": "comptroller_",
                 "type": "address"
             },
@@ -886,6 +829,11 @@
         "stateMutability": "nonpayable",
         "type": "constructor",
         "signature": "constructor"
+    },
+    {
+        "payable": true,
+        "stateMutability": "payable",
+        "type": "fallback"
     },
     {
         "anonymous": false,
@@ -1231,5 +1179,21 @@
         "name": "Approval",
         "type": "event",
         "signature": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925"
+    },
+    {
+        "constant": true,
+        "inputs": [],
+        "name": "underlying",
+        "outputs": [
+            {
+                "internalType": "address",
+                "name": "",
+                "type": "address"
+            }
+        ],
+        "payable": false,
+        "stateMutability": "view",
+        "type": "function",
+        "signature": "0x6f307dc3"
     }
 ]
