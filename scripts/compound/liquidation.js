@@ -249,19 +249,31 @@ const doLiquidation = () => {
             }
 
             let marketData = markets[marketAddress]._data;
+            // coinbase doesn't have USDC price :okay:
+			let coinbasePrice = coinbasePricesGlobal[marketData.underlyingToken.symbol]
+				? coinbasePricesGlobal[marketData.underlyingToken.symbol].normalizedPrice
+				: null;
 
             let suppliedUnderlying = accountMarket.tokens
                 .mul(marketData.getExchangeRate()).div(EXPONENT);
+			let borrowedUnderlying = accountMarket.borrows;
+
+			let useCoinBasePrice = false;
+			if (coinbasePrice !== null && borrowedUnderlying.gt(suppliedUnderlying) && coinbasePrice.gt(marketData.underlyingPrice)) {
+				useCoinBasePrice = true;
+			}
+			if (coinbasePrice !== null && suppliedUnderlying.gt(borrowedUnderlying) && marketData.underlyingPrice.gt(coinbasePrice)) {
+				useCoinBasePrice = true;
+			}
+			let priceForCalculation = useCoinBasePrice ? coinbasePrice : marketData.underlyingPrice;
 
             let marketSuppliedEth = suppliedUnderlying
-                                    .mul(marketData.collateralFactor).div(EXPONENT)
-                                    .mul(marketData.underlyingPrice).div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
-
-            let borrowedUnderlying = accountMarket.borrows;
+				.mul(marketData.collateralFactor).div(EXPONENT)
+				.mul(priceForCalculation).div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
 
             let marketBorrowedEth = borrowedUnderlying
-                                    .mul(marketData.underlyingPrice)
-                                    .div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
+					.mul(priceForCalculation)
+					.div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
 
             let exchRateFmt = marketData.getExchangeRate() / 10**(18 + (marketData.underlyingToken.decimals - marketData.token.decimals));
             accountConsoleLines.push(`++ ${marketData.underlyingToken.formatAmount(borrowedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketBorrowedEth)} USD borrowed`);
@@ -270,16 +282,22 @@ const doLiquidation = () => {
             totalBorrowedEth = totalBorrowedEth.add(marketBorrowedEth);
             totalSuppliedEth = totalSuppliedEth.add(marketSuppliedEth);
 
+            // use this to keep track of shortfall for sort
+
             borrowedMarkets.push({
                 account: accountMarket,
                 ethAmount: marketBorrowedEth,
                 market: marketData,
+				useCoinBasePrice,
+				chosenPrice: priceForCalculation,
             });
 
             suppliedMarkets.push({
                 account: accountMarket,
                 ethAmount: marketSuppliedEth,
                 market: marketData,
+				useCoinBasePrice,
+				chosenPrice: priceForCalculation,
             });
         }
 
@@ -290,7 +308,7 @@ const doLiquidation = () => {
             continue;
         }
 
-        // Liquidate largest eth borrowed for largest eth supplied
+		// todo next we can prune for where we dont need to post coinbase price
 
         // sort so largest is in front by ethAmount
         borrowedMarkets.sort((a, b) => { return a.ethAmount.sub(b.ethAmount).lt(0) ? 1 : -1; });
@@ -337,8 +355,21 @@ const doLiquidation = () => {
         let borrowedMarketData = maxBorrowedEthEntry.market;
         let suppliedMarketData = maxSuppliedEthEntry.market;
 
-        let priceSupplied = suppliedMarketData.underlyingPrice;
-        let priceBorrowed = borrowedMarketData.underlyingPrice;
+        let priceSupplied = maxSuppliedEthEntry.chosenPrice;
+        let priceBorrowed = maxBorrowedEthEntry.chosenPrice;
+
+        let coinbaseMessages = [];
+        let coinbaseSignatures = [];
+        let coinbaseSymbols = [];
+        for (let i = 0; i < borrowedMarkets.length; i++) {
+        	if (borrowedMarkets[i].useCoinBasePrice) {
+				let coinbaseEntry = coinbasePricesGlobal[borrowedMarkets[i].market.underlyingToken.symbol];
+				coinbaseMessages.push(coinbaseEntry.message);
+				coinbaseSignatures.push(coinbaseEntry.signature);
+				coinbaseSymbols.push(coinbaseEntry.rawSymbol);
+			}
+		}
+        console.log(`Posting prices for: ${JSON.stringify(coinbaseSymbols)}`);
 
 	// underlying balance
 	let balanceSupplied = maxSuppliedEthMarket.tokens // no collateral factor for repay calc
@@ -406,16 +437,17 @@ const doLiquidation = () => {
     }
 }
 
+const normalizeRawPrice = rawPrice => rawPrice.mul(constants.TEN.pow(30)).div(constants.TEN.pow(18));
 const onPriceUpdated = (symbol, price, markets) => {
     if (symbol === 'BTC') {
-	symbol = 'WBTC';
+    	symbol = 'WBTC';
     }
 
     for (let market of Object.values(markets)) {
 	if (market._data.underlyingToken.symbol === symbol) {
 	    // need to transform the price we receive to mirror
 	    // https://github.com/compound-finance/open-oracle/blob/master/contracts/Uniswap/UniswapAnchoredView.sol#L135
-	    let newPrice = price.mul(constants.TEN.pow(30)).div(constants.TEN.pow(18));
+	    let newPrice = normalizeRawPrice(price);
 	    let oldPrice = market._data.underlyingPrice;
 
 	    let ethToken = tokens.TokenFactory.getEthToken();
@@ -868,18 +900,20 @@ const updateAccountBalance = async (operatingAddress) => {
 
 const updateExternalPrices = async () => {
     let response = await axios.get('https://prices.compound.finance');
-    let {coinbase, okex} = response.data;
+    let {coinbase} = response.data;
     console.log(`FETCHED COINBASE PRICES: ${JSON.stringify(coinbase.prices)}`);
-    console.log(`FETCHED OKEX PRICES: ${JSON.stringify(okex.prices)}`);
 
     const updatedCoinbasePrices = {};
     for(let i = 0; i < coinbase.messages.length; i++) {
 		let [kind, timestamp, symbol, price] = ethers.utils.defaultAbiCoder.decode(['string', 'uint64', 'string', 'uint64'], coinbase.messages[i]);
+		let normalizedSymbol = symbol === 'BTC' ? 'WBTC' : symbol;
 		updatedCoinbasePrices[symbol] = {
 			message: coinbase.messages[i],
 			signature: coinbase.signatures[i],
-			symbol,
+			rawSymbol: symbol,
+			normalizedSymbol,
 			rawPrice: price, // this is the raw price, same as what comes thru on onPriceUpdate
+			normalizedPrice: normalizeRawPrice(price),
 			timestamp,
 		}
 	}
