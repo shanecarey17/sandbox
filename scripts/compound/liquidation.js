@@ -193,8 +193,8 @@ const getUniswapPair = async (borrowMarketUnderlyingAddress, collateralMarketUnd
     }
 
     let pairAddress = await uniswapFactoryContractGlobal.getPair(
-            borrowMarketUnderlyingAddress,
-            collateralMarketUnderlyingAddress
+        borrowMarketUnderlyingAddress,
+        collateralMarketUnderlyingAddress
     );
 
     return await ethers.getContractAt('IUniswapV2Pair', pairAddress);
@@ -232,8 +232,8 @@ const doLiquidation = () => {
 
             // coinbase doesn't have USDC price :okay:
             let coinbasePrice = coinbasePricesGlobal[marketData.underlyingToken.symbol]
-                    ? coinbasePricesGlobal[marketData.underlyingToken.symbol].normalizedPrice
-                    : null;
+                ? coinbasePricesGlobal[marketData.underlyingToken.symbol].normalizedPrice
+                : null;
 
             let suppliedUnderlying = accountMarket.tokens
                 .mul(marketData.getExchangeRate()).div(EXPONENT);
@@ -460,7 +460,7 @@ const doLiquidation = () => {
 const normalizeRawPrice = rawPrice => rawPrice.mul(constants.TEN.pow(30)).div(constants.TEN.pow(18));
 const onPriceUpdated = (symbol, price, markets) => {
     if (symbol === 'BTC') {
-            symbol = 'WBTC';
+        symbol = 'WBTC';
     }
 
     for (let market of Object.values(markets)) {
@@ -712,7 +712,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                     }
                 }
 
-                 if (dst == this.address) {
+                if (dst == this.address) {
                     // Redeem - remove tokens from total supply
                     dstBalance = this.totalSupply = this.totalSupply.sub(amount);
                 } else {
@@ -1040,7 +1040,7 @@ const run = async () => {
     let lastBlock = startBlock;
 
     while (true) {
-            // Just log to csv everytime, TODO remove after validating
+        // Just log to csv everytime, TODO remove after validating
         (async () => {
             const csv = new ObjectsToCsv(liquidationRecords);
 
