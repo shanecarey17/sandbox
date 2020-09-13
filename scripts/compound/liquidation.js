@@ -50,6 +50,7 @@ let LIQUIDATION_INCENTIVE_MANTISSA = undefined;
 
 let comptrollerContractGlobal = undefined;
 let liquidatorContractGlobal = undefined;
+let liquidatorWrapperContractGlobal = undefined;
 let uniswapFactoryContractGlobal = undefined;
 let operatingAccountGlobal = undefined;
 let operatingAccountBalanceGlobal = undefined;
@@ -62,7 +63,7 @@ let gasPriceGlobal = undefined;
 
 let isLiveGlobal = false;
 
-let didLiquidateAlready = false; // TODO remove when contract has gas tracking
+let isDoneGlobal = false;
 
 // Start code
 
@@ -107,35 +108,10 @@ const sendMessage = async (subject, message) => {
     await axios.post(slackURL, JSON.stringify(data));
 }
 
-const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, shortfallEth, repaySupplyWasLarger) => {
-    // Confirm the liquidity before we send this off
-    let comptrollerContract = comptrollerContractGlobal;
-    let [err, liquidity, shortfall] = await comptrollerContract.getAccountLiquidity(account);
-    let [err2, estimatedSeizeAmount] = await comptrollerContractGlobal.liquidateCalculateSeizeTokens(
-        borrowedMarket.address, collateralMarket.address, repayBorrowAmount);
-
+const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, shortfallEth, repaySupplyWasLarger, coinbaseEntries) => {
     let ethToken = tokens.TokenFactory.getEthToken();
-    let color = shortfallEth.eq(shortfall) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
-    console.log(color, `ACCOUNT ${account} SHORTFALL EXPECTED ${ethToken.formatAmount(shortfallEth)} ACTUAL ${ethToken.formatAmount(shortfall)}`);
 
-    if (shortfall.eq(0)) {
-        // TODO print all info
-        throw new Error(`expected shortfall when comptroller shows none! ${account}`);
-    }
-
-    // TODO remove when new contract deployed
-    if (collateralMarket.address === borrowedMarket.address) {
-	console.log('CANNOT LIQUIDATE SAME TOKEN');
-	return;
-    }
-
-    // TODO remove with v2 contract deploy
-    if (borrowedMarket.underlyingToken.address === USDT_ADDRESS || collateralMarket.underlyingToken.address === USDT_ADDRESS) {
-	console.log('CANNOT LIQUIDATE USDT token rn');
-	return;
-    }
-
-    // TODO account for same token pair
+    // Check uniswap pair liquidity
     const uniswapBorrowTokenAddress = borrowedMarket.underlyingToken.address === ethToken.address ? WETH_ADDRESS : borrowedMarket.underlyingToken.address;
     const uniswapCollateralTokenAddress = collateralMarket.underlyingToken.address === ethToken.address ? WETH_ADDRESS : collateralMarket.underlyingToken.address;
     const uniswapPair = await getUniswapPair(uniswapBorrowTokenAddress, uniswapCollateralTokenAddress);
@@ -150,75 +126,76 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 	return;
     }
 
-    const numerator = reserveIn.mul(repayBorrowAmount).mul(1000);
-    const denominator = reserveOut.sub(repayBorrowAmount).mul(997);
-    const amountIn = numerator.div(denominator).add(1);
+    let amountIn;
+    if (uniswapBorrowTokenAddress === uniswapCollateralTokenAddress) {
+        amountIn = repayBorrowAmount.mul(1000).div(997).add(1);
+    } else {
+	const numerator = reserveIn.mul(repayBorrowAmount).mul(1000);
+	const denominator = reserveOut.sub(repayBorrowAmount).mul(997);
+	amountIn = numerator.div(denominator).add(1);
+    }
 
     if (amountIn.gte(seizeAmount)) {
 	console.log(`Did not seize enough repay uniswap for account: ${account}`);
 	return;
     }
 
-    // TODO remove when we support multiple liquidations in a run
-    if (didLiquidateAlready) {
-        console.log(`Not liquidating account ${account} - already liquidated this run`);
+    if (isDoneGlobal) {
+        console.log('Liquidation already sent');
         return;
+    } else {
+        isDoneGlobal = true;
     }
-    didLiquidateAlready = true;
 
-    let error = '';
     try {
-        let liquidateMethod = isLiveGlobal ? 
-            liquidatorContractGlobal.liquidate 
-            : liquidatorContractGlobal.callStatic.liquidate; // callStatic = dry run
+	let liquidateMethod = isLiveGlobal ? 
+	    liquidatorWrapperContractGlobal.liquidate 
+	    : liquidatorWrapperContractGlobal.callStatic.liquidate; // callStatic = dry run
 
 	let result = await liquidateMethod(
 	    account,
 	    borrowedMarket.address,
 	    collateralMarket.address,
 	    repayBorrowAmount,
+            coinbaseEntries.map(({message}) => message),
+            coinbaseEntries.map(({signature}) => signature),
+            coinbaseEntries.map(({symbol}) => symbol),
 	    {
 		gasPrice: gasPriceGlobal,
 		gasLimit: LIQUIDATE_GAS_ESTIMATE,
 	    }
 	);
 
-	console.log(`LIQUIDATED ACCOUNT ${account} - RESULT ${result}`);
+	console.log(`LIQUIDATED ACCOUNT ${account} - RESULT ${JSON.stringify(result)}`);
 
-	await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account}`);
+	await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account} - ${JSON.stringify(result)}`);
     } catch (err) {
         console.log(`FAILED TO LIQUIDATE ACCOUNT ${account} - ERROR ${err}`);
-        error = `${err}`;
-	await sendMessage('LIQUIDATION', `FAILED TO LIQUIDATE ACCOUNT ${account} ${err}`);
-    } finally {
-	addLiquidationRecord(
-	    account,
-	    borrowedMarket.underlyingToken.symbol,
-	    collateralMarket.underlyingToken.symbol,
-	    repayBorrowAmount,
-	    seizeAmount,
-	    collateralMarket.underlyingToken.formatAmount(collateralMarket.getExchangeRate().mul(estimatedSeizeAmount)
-		.div(constants.TEN.pow(18))
-	    ),
-	    ethToken.formatAmount(shortfallEth),
-	    repaySupplyWasLarger,
-	    reserveIn,
-	    reserveOut,
-	    amountIn,
-	    error
-        );
 
-	process.exit();
-    }
+	await sendMessage('LIQUIDATION', `FAILED TO LIQUIDATE ACCOUNT ${account} ${err}`);
+    } 
+
+    console.log('EXITING');
+    process.exit();
 };
 
 // TODO add caching
 const uniswapPairs = {};
+
 const getUniswapPair = async (borrowMarketUnderlyingAddress, collateralMarketUnderlyingAddress) => {
+    if (borrowMarketUnderlyingAddress === collateralMarketUnderlyingAddress) {
+        if (borrowMarketUnderlyingAddress === WETH_ADDRESS) {
+            collateralMarketUnderlyingAddress = DAI_ADDRESS; // not supported anyway
+        } else {
+            collateralMarketUnderlyingAddress = WETH_ADDRESS;
+        }
+    }
+
     let pairAddress = await uniswapFactoryContractGlobal.getPair(
 	    borrowMarketUnderlyingAddress,
 	    collateralMarketUnderlyingAddress
     );
+
     return await ethers.getContractAt("IUniswapV2Pair", pairAddress);
 };
 
@@ -229,6 +206,8 @@ const doLiquidation = () => {
     let ethToken = tokens.TokenFactory.getEthToken();
 
     const liquidationGasCost = LIQUIDATE_GAS_ESTIMATE.mul(gasPriceGlobal);
+
+    const liquidationCandidates = [];
 
     for (let account of Object.values(accounts)) {
         if (account.liquidated) {
@@ -250,36 +229,60 @@ const doLiquidation = () => {
 
             let marketData = markets[marketAddress]._data;
 
+            // coinbase doesn't have USDC price :okay:
+	    let coinbasePrice = coinbasePricesGlobal[marketData.underlyingToken.symbol]
+		    ? coinbasePricesGlobal[marketData.underlyingToken.symbol].normalizedPrice
+		    : null;
+
             let suppliedUnderlying = accountMarket.tokens
                 .mul(marketData.getExchangeRate()).div(EXPONENT);
 
-            let marketSuppliedEth = suppliedUnderlying
-                                    .mul(marketData.collateralFactor).div(EXPONENT)
-                                    .mul(marketData.underlyingPrice).div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
+	    let borrowedUnderlying = accountMarket.borrows;
 
-            let borrowedUnderlying = accountMarket.borrows;
+	    let useCoinBasePrice = false;
+            if (coinbasePrice !== null) {
+		if (borrowedUnderlying.gt(suppliedUnderlying) && coinbasePrice.gt(marketData.underlyingPrice)) {
+		    useCoinBasePrice = true;
+		}
+
+		if (suppliedUnderlying.gt(borrowedUnderlying) && marketData.underlyingPrice.gt(coinbasePrice)) {
+		    useCoinBasePrice = true;
+		}
+            }
+
+	    let priceForCalculation = useCoinBasePrice ? coinbasePrice : marketData.underlyingPrice;
+
+            let marketSuppliedEth = suppliedUnderlying
+		.mul(marketData.collateralFactor).div(EXPONENT)
+		.mul(priceForCalculation).div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
 
             let marketBorrowedEth = borrowedUnderlying
-                                    .mul(marketData.underlyingPrice)
-                                    .div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
+		.mul(priceForCalculation)
+		.div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
 
             let exchRateFmt = marketData.getExchangeRate() / 10**(18 + (marketData.underlyingToken.decimals - marketData.token.decimals));
             accountConsoleLines.push(`++ ${marketData.underlyingToken.formatAmount(borrowedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketBorrowedEth)} USD borrowed`);
-            accountConsoleLines.push(`++\t${marketData.token.formatAmount(accountMarket.tokens)} ${marketData.token.symbol} @${exchRateFmt} => ${marketData.underlyingToken.formatAmount(suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketSuppliedEth)} USD supplied @(${ethToken.formatAmount(marketData.collateralFactor)})`);
+            accountConsoleLines.push(`++    ${marketData.token.formatAmount(accountMarket.tokens)} ${marketData.token.symbol} @${exchRateFmt} => ${marketData.underlyingToken.formatAmount(suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketSuppliedEth)} USD supplied @(${ethToken.formatAmount(marketData.collateralFactor)})`);
 
             totalBorrowedEth = totalBorrowedEth.add(marketBorrowedEth);
             totalSuppliedEth = totalSuppliedEth.add(marketSuppliedEth);
+
+            // use this to keep track of shortfall for sort
 
             borrowedMarkets.push({
                 account: accountMarket,
                 ethAmount: marketBorrowedEth,
                 market: marketData,
+		useCoinBasePrice,
+		chosenPrice: priceForCalculation,
             });
 
             suppliedMarkets.push({
                 account: accountMarket,
                 ethAmount: marketSuppliedEth,
                 market: marketData,
+		useCoinBasePrice,
+		chosenPrice: priceForCalculation,
             });
         }
 
@@ -290,7 +293,7 @@ const doLiquidation = () => {
             continue;
         }
 
-        // Liquidate largest eth borrowed for largest eth supplied
+	// TODO next we can prune for where we dont need to post coinbase price
 
         // sort so largest is in front by ethAmount
         borrowedMarkets.sort((a, b) => { return a.ethAmount.sub(b.ethAmount).lt(0) ? 1 : -1; });
@@ -320,6 +323,7 @@ const doLiquidation = () => {
             console.log(line);
         }
 
+        console.log(`++`);
         console.log(`++ TOTAL ${ethToken.formatAmount(totalBorrowedEth)} USD borrowed / ${ethToken.formatAmount(totalSuppliedEth)} USD supplied`);
         console.log(`++ SHORTFALL ${ethToken.formatAmount(shortfallEth)}`);
 
@@ -337,8 +341,25 @@ const doLiquidation = () => {
         let borrowedMarketData = maxBorrowedEthEntry.market;
         let suppliedMarketData = maxSuppliedEthEntry.market;
 
-        let priceSupplied = suppliedMarketData.underlyingPrice;
-        let priceBorrowed = borrowedMarketData.underlyingPrice;
+        let priceSupplied = maxSuppliedEthEntry.chosenPrice;
+        let priceBorrowed = maxBorrowedEthEntry.chosenPrice;
+
+        let coinbaseEntries = [];
+
+        for (let i = 0; i < borrowedMarkets.length; i++) {
+	    if (borrowedMarkets[i].useCoinBasePrice) {
+		let coinbaseEntry = coinbasePricesGlobal[borrowedMarkets[i].market.underlyingToken.symbol];
+
+		coinbaseEntries.push({
+                    message: coinbaseEntry.message,
+                    signature: coinbaseEntry.signature,
+                    symbol: coinbaseEntry.rawSymbol
+                });
+	    }
+	}
+
+        let coinbaseSymbols = coinbaseEntries.map(({symbol}) => symbol);
+        console.log(`Posting prices for: ${JSON.stringify(coinbaseSymbols)}`);
 
 	// underlying balance
 	let balanceSupplied = maxSuppliedEthMarket.tokens // no collateral factor for repay calc
@@ -387,35 +408,65 @@ const doLiquidation = () => {
         }
 
         if (profit.gt(0)) {
-            console.log(constants.CONSOLE_GREEN, `LIQUIDATING ACCOUNT ${account.address}`);
-            liquidateAccount(
-		account.address,
+            liquidationCandidates.push({
+		accountAddress: account.address,
 		borrowedMarketData,
 		suppliedMarketData,
 		repayAmount,
 		seizeAmount,
 		shortfallEth,
-		repaySupplyWasLarger
-            ).then(() => {
-                // noop
+		repaySupplyWasLarger,
+                coinbaseEntries,
+                profit
             });
-            account.liquidated = true;
         }
 
+        // End of account
         console.log('');
     }
+
+    if (liquidationCandidates.length == 0) {
+        console.log(constants.CONSOLE_RED, 'NO LIQUIDATION CANDIDATES');
+        return;
+    }
+
+    liquidationCandidates.sort((a, b) => {
+        // sort by profit descending
+        return a.profit.sub(b.profit).lt(0) ? 1 : -1;
+    });
+
+    let topCandidate = liquidationCandidates[0];
+
+    console.log(constants.CONSOLE_GREEN, `LIQUIDATING ACCOUNT ${topCandidate.accountAddress}`);
+
+    liquidateAccount(
+	topCandidate.accountAddress,
+	topCandidate.borrowedMarketData,
+	topCandidate.suppliedMarketData,
+	topCandidate.repayAmount,
+	topCandidate.seizeAmount,
+	topCandidate.shortfallEth,
+	topCandidate.repaySupplyWasLarger,
+        topCandidate.coinbaseEntries
+    ).then(() => {
+	// noop
+    });
+
+    // TODO mark account as liquidated to avoid double tap
+    // account.liquidated = true;
 }
 
+const normalizeRawPrice = rawPrice => rawPrice.mul(constants.TEN.pow(30)).div(constants.TEN.pow(18));
 const onPriceUpdated = (symbol, price, markets) => {
     if (symbol === 'BTC') {
-	symbol = 'WBTC';
+    	symbol = 'WBTC';
     }
 
     for (let market of Object.values(markets)) {
 	if (market._data.underlyingToken.symbol === symbol) {
 	    // need to transform the price we receive to mirror
 	    // https://github.com/compound-finance/open-oracle/blob/master/contracts/Uniswap/UniswapAnchoredView.sol#L135
-	    let newPrice = price.mul(constants.TEN.pow(30)).div(constants.TEN.pow(18));
+	    let newPrice = normalizeRawPrice(price);
 	    let oldPrice = market._data.underlyingPrice;
 
 	    let ethToken = tokens.TokenFactory.getEthToken();
@@ -818,6 +869,20 @@ const getLiquidator = async (operatingAccount) => {
     return liquidatorContractGlobal;
 }
 
+const getLiquidatorWrapper = async (operatingAccount) => {
+    const liqWrapperDeployment = await deployments.get("CompoundLiquidatorWrapper");
+
+    // Connect this contract to the operating signer, this is the only contract to which we send signed transactions
+    liquidatorWrapperContractGlobal = await ethers.getContractAt("CompoundLiquidatorWrapper", liqWrapperDeployment.address, operatingAccount);
+
+    let operatingAddress = await operatingAccount.getAddress();
+    assert(await liquidatorWrapperContractGlobal.owner() == operatingAddress);
+
+    console.log(`LIQUIDATOR WRAPPER DEPLOYED @ ${liquidatorWrapperContractGlobal.address}`);
+
+    return liquidatorWrapperContractGlobal;
+}
+
 const getUniswapFactory = async () => {
 	uniswapFactoryContractGlobal = await ethers.getContractAt("IUniswapV2Factory", UNISWAP_FACTORY_ADDRESS);
 	return uniswapFactoryContractGlobal;
@@ -868,22 +933,24 @@ const updateAccountBalance = async (operatingAddress) => {
 
 const updateExternalPrices = async () => {
     let response = await axios.get('https://prices.compound.finance');
-    let {coinbase, okex} = response.data;
+    let {coinbase} = response.data;
     console.log(`FETCHED COINBASE PRICES: ${JSON.stringify(coinbase.prices)}`);
-    console.log(`FETCHED OKEX PRICES: ${JSON.stringify(okex.prices)}`);
 
     const updatedCoinbasePrices = {};
     for(let i = 0; i < coinbase.messages.length; i++) {
-		let [kind, timestamp, symbol, price] = ethers.utils.defaultAbiCoder.decode(['string', 'uint64', 'string', 'uint64'], coinbase.messages[i]);
-		updatedCoinbasePrices[symbol] = {
-			message: coinbase.messages[i],
-			signature: coinbase.signatures[i],
-			symbol,
-			rawPrice: price, // this is the raw price, same as what comes thru on onPriceUpdate
-			timestamp,
-		}
+	let [kind, timestamp, symbol, price] = ethers.utils.defaultAbiCoder.decode(['string', 'uint64', 'string', 'uint64'], coinbase.messages[i]);
+	let normalizedSymbol = symbol === 'BTC' ? 'WBTC' : symbol;
+	updatedCoinbasePrices[normalizedSymbol] = {
+	    message: coinbase.messages[i],
+	    signature: coinbase.signatures[i],
+	    rawSymbol: symbol,
+	    normalizedSymbol,
+	    rawPrice: price, // this is the raw price, same as what comes thru on onPriceUpdate
+	    normalizedPrice: normalizeRawPrice(price),
+	    timestamp,
 	}
-	coinbasePricesGlobal = updatedCoinbasePrices;
+    }
+    coinbasePricesGlobal = updatedCoinbasePrices;
     
     let task = new Promise(resolve => setTimeout(resolve, 10 * 1000));
     task.then(() => updateExternalPrices());
@@ -895,6 +962,8 @@ const run = async () => {
     let operatingAccount = await loadOperatingAccount();
 
     let liquidator = await getLiquidator(operatingAccount);
+
+    let liquidatorWrapper = await getLiquidatorWrapper(operatingAccount);
 
     await tokens.TokenFactory.init();
 

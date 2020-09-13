@@ -1,7 +1,10 @@
+const assert = require('assert');
+
 module.exports = async ({ getNamedAccounts, deployments, getChainId }) => {
 	const { deploy } = deployments;
 	const { deployer } = await getNamedAccounts();
 	const liqDeployment = await deployments.get("CompoundLiquidator");
+        assert(liqDeployment !== undefined && liqDeployment !== null);
 	const uniswapViewAddress = "0x9B8Eb8b3d6e2e0Db36F41455185FEF7049a35CaE";
 
 	const deployResult = await deploy("CompoundLiquidatorWrapper", {
@@ -20,6 +23,6 @@ module.exports = async ({ getNamedAccounts, deployments, getChainId }) => {
 	}
 };
 
-module.exports.tags = ['liquidator wrapper'];
+module.exports.tags = ['liquidator_wrapper'];
 // needed to add this so liquidator fixture executed first in test
 module.exports.dependencies = ["liquidator"];
