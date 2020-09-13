@@ -741,7 +741,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
     return allMarkets;
 };
 
-const getAccounts = async (markets, blockNumber) => {
+const fetchAccounts = async (blockNumber) => {
     let allAccounts = [];
 
     let url = 'https://api.compound.finance/api/v2/account';
@@ -754,7 +754,7 @@ const getAccounts = async (markets, blockNumber) => {
 
     let response = await axios.post(url, JSON.stringify(reqData));
 
-    console.log(url);
+    console.log(`FETCHED URL ${url}`);
 
     for (let account of response.data.accounts) {
         allAccounts.push(account);
@@ -770,7 +770,7 @@ const getAccounts = async (markets, blockNumber) => {
 
             let r = await axios.post(page_url, JSON.stringify(reqData));
 
-            console.log(page_url);
+            console.log(`FETCHED URL ${page_url}`);
 
             for (let account of r.data.accounts) {
                 allAccounts.push(account);
@@ -781,6 +781,19 @@ const getAccounts = async (markets, blockNumber) => {
     }
 
     await Promise.all(tasks);
+
+    return allAccounts;
+};
+
+const getAccounts = async (markets, blockNumber) => {
+    let allAccounts;
+    try {
+        allAccounts = await fetchAccounts(blockNumber);
+    } catch (err) {
+        console.log(err);
+
+        throw new Error(`Failed to load accounts from compound rest api - ${err}`);
+    }
 
     // Main accounts object
     // Account address => market address => tracker
