@@ -150,21 +150,21 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 
     try {
         let liquidateMethod = isLiveGlobal ? 
-	    liquidatorWrapperContractGlobal.liquidate 
-	    : liquidatorWrapperContractGlobal.callStatic.liquidate; // callStatic = dry run
+            liquidatorWrapperContractGlobal.liquidate 
+            : liquidatorWrapperContractGlobal.callStatic.liquidate; // callStatic = dry run
 
         let result = await liquidateMethod(
-	    account,
-	    borrowedMarket.address,
-	    collateralMarket.address,
-	    repayBorrowAmount,
+            account,
+            borrowedMarket.address,
+            collateralMarket.address,
+            repayBorrowAmount,
             coinbaseEntries.map(({message}) => message),
             coinbaseEntries.map(({signature}) => signature),
             coinbaseEntries.map(({symbol}) => symbol),
-	    {
+            {
                 gasPrice: gasPriceGlobal,
                 gasLimit: LIQUIDATE_GAS_ESTIMATE,
-	    }
+            }
         );
 
         console.log(`LIQUIDATED ACCOUNT ${account} - RESULT ${JSON.stringify(result)}`);
@@ -193,8 +193,8 @@ const getUniswapPair = async (borrowMarketUnderlyingAddress, collateralMarketUnd
     }
 
     let pairAddress = await uniswapFactoryContractGlobal.getPair(
-	    borrowMarketUnderlyingAddress,
-	    collateralMarketUnderlyingAddress
+            borrowMarketUnderlyingAddress,
+            collateralMarketUnderlyingAddress
     );
 
     return await ethers.getContractAt('IUniswapV2Pair', pairAddress);
@@ -231,27 +231,27 @@ const doLiquidation = () => {
             let marketData = markets[marketAddress]._data;
 
             // coinbase doesn't have USDC price :okay:
-	    let coinbasePrice = coinbasePricesGlobal[marketData.underlyingToken.symbol]
-		    ? coinbasePricesGlobal[marketData.underlyingToken.symbol].normalizedPrice
-		    : null;
+            let coinbasePrice = coinbasePricesGlobal[marketData.underlyingToken.symbol]
+                    ? coinbasePricesGlobal[marketData.underlyingToken.symbol].normalizedPrice
+                    : null;
 
             let suppliedUnderlying = accountMarket.tokens
                 .mul(marketData.getExchangeRate()).div(EXPONENT);
 
-	    let borrowedUnderlying = accountMarket.borrows;
+            let borrowedUnderlying = accountMarket.borrows;
 
-	    let useCoinBasePrice = false;
+            let useCoinBasePrice = false;
             if (coinbasePrice !== null) {
                 if (borrowedUnderlying.gt(suppliedUnderlying) && coinbasePrice.gt(marketData.underlyingPrice)) {
-		    useCoinBasePrice = true;
+                    useCoinBasePrice = true;
                 }
 
                 if (suppliedUnderlying.gt(borrowedUnderlying) && marketData.underlyingPrice.gt(coinbasePrice)) {
-		    useCoinBasePrice = true;
+                    useCoinBasePrice = true;
                 }
             }
 
-	    let priceForCalculation = useCoinBasePrice ? coinbasePrice : marketData.underlyingPrice;
+            let priceForCalculation = useCoinBasePrice ? coinbasePrice : marketData.underlyingPrice;
 
             let marketSuppliedEth = suppliedUnderlying
                 .mul(marketData.collateralFactor).div(EXPONENT)
@@ -348,7 +348,7 @@ const doLiquidation = () => {
         let coinbaseEntries = [];
 
         for (let i = 0; i < borrowedMarkets.length; i++) {
-	    if (borrowedMarkets[i].useCoinBasePrice) {
+            if (borrowedMarkets[i].useCoinBasePrice) {
                 let coinbaseEntry = coinbasePricesGlobal[borrowedMarkets[i].market.underlyingToken.symbol];
 
                 coinbaseEntries.push({
@@ -356,7 +356,7 @@ const doLiquidation = () => {
                     signature: coinbaseEntry.signature,
                     symbol: coinbaseEntry.rawSymbol
                 });
-	    }
+            }
         }
 
         let coinbaseSymbols = coinbaseEntries.map(({symbol}) => symbol);
@@ -404,8 +404,8 @@ const doLiquidation = () => {
         console.log(profitColor, `++ PROFIT ${ethToken.formatAmount(profit)} USD`);
 
         if (liquidationGasCost.gt(operatingAccountBalanceGlobal)) {
-	    console.log('cant liquidate with gas greater than account balance');
-	    continue;
+            console.log('cant liquidate with gas greater than account balance');
+            continue;
         }
 
         if (profit.gt(0)) {
@@ -460,22 +460,22 @@ const doLiquidation = () => {
 const normalizeRawPrice = rawPrice => rawPrice.mul(constants.TEN.pow(30)).div(constants.TEN.pow(18));
 const onPriceUpdated = (symbol, price, markets) => {
     if (symbol === 'BTC') {
-    	symbol = 'WBTC';
+            symbol = 'WBTC';
     }
 
     for (let market of Object.values(markets)) {
         if (market._data.underlyingToken.symbol === symbol) {
-	    // need to transform the price we receive to mirror
-	    // https://github.com/compound-finance/open-oracle/blob/master/contracts/Uniswap/UniswapAnchoredView.sol#L135
-	    let newPrice = normalizeRawPrice(price);
-	    let oldPrice = market._data.underlyingPrice;
+            // need to transform the price we receive to mirror
+            // https://github.com/compound-finance/open-oracle/blob/master/contracts/Uniswap/UniswapAnchoredView.sol#L135
+            let newPrice = normalizeRawPrice(price);
+            let oldPrice = market._data.underlyingPrice;
 
-	    let ethToken = tokens.TokenFactory.getEthToken();
-	    console.log(`[${symbol}] PRICE_UPDATED (raw ${price.toString()}) ${ethToken.formatAmount(oldPrice)} => ${ethToken.formatAmount(newPrice)}`);
+            let ethToken = tokens.TokenFactory.getEthToken();
+            console.log(`[${symbol}] PRICE_UPDATED (raw ${price.toString()}) ${ethToken.formatAmount(oldPrice)} => ${ethToken.formatAmount(newPrice)}`);
 
-	    market._data.underlyingPrice = newPrice;
+            market._data.underlyingPrice = newPrice;
 
-	    return;
+            return;
         }
     }
 
@@ -597,46 +597,46 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                 this.totalReserves = this.totalReserves.add(interestAccumulated.mul(this.reserveFactor).div(EXPONENT));
 
                 console.log(`[${this.underlyingToken.symbol}] ACCRUE_INTEREST
-		    ${this.token.formatAmount(borrowIndex)} borrowIndex
-		    ${this.underlyingToken.formatAmount(totalBorrows)} ${this.underlyingToken.symbol} totalBorrows
-		    ${this.underlyingToken.formatAmount(interestAccumulated)} ${this.underlyingToken.symbol} interestAccumulated`);
-	    };
+                    ${this.token.formatAmount(borrowIndex)} borrowIndex
+                    ${this.underlyingToken.formatAmount(totalBorrows)} ${this.underlyingToken.symbol} totalBorrows
+                    ${this.underlyingToken.formatAmount(interestAccumulated)} ${this.underlyingToken.symbol} interestAccumulated`);
+            };
 
-	    this.onMint = ({minter, mintAmount, mintTokens}) => {
+            this.onMint = ({minter, mintAmount, mintTokens}) => {
                 // User supplied mintAmount to the pool and receives mintTokens cTokens in exchange
                 // Followed by Transfer event
 
                 this.totalCash = this.totalCash.add(mintAmount);
 
                 console.log(`[${this.underlyingToken.symbol}] MINT - ${minter} 
-		    ${this.underlyingToken.formatAmount(mintAmount)} ${this.underlyingToken.symbol} deposited
-		    ${this.token.formatAmount(mintTokens)} ${this.token.symbol} minted
-		    ${this.token.formatAmount(this.totalSupply)} totalSupply`);
+                    ${this.underlyingToken.formatAmount(mintAmount)} ${this.underlyingToken.symbol} deposited
+                    ${this.token.formatAmount(mintTokens)} ${this.token.symbol} minted
+                    ${this.token.formatAmount(this.totalSupply)} totalSupply`);
 
                 let minterData = minter in accounts ? accounts[minter][this.address] : undefined;
 
                 if (minterData !== undefined) {
-		    minterData.tokens = minterData.tokens.add(mintTokens);
+                    minterData.tokens = minterData.tokens.add(mintTokens);
                 }
-	    };
+            };
 
-	    this.onRedeem = ({redeemer, redeemAmount, redeemTokens}) => {
+            this.onRedeem = ({redeemer, redeemAmount, redeemTokens}) => {
                 // User redeemed redeemTokens cTokens for redeemAmount underlying
                 // Preceded by Transfer event
 
                 this.totalCash = this.totalCash.sub(redeemAmount);
 
                 console.log(`[${this.underlyingToken.symbol}] REDEEM - ${redeemer} 
-		    ${this.token.formatAmount(redeemTokens)} ${this.token.symbol} redeemed
-		    ${this.underlyingToken.formatAmount(redeemAmount)} ${this.underlyingToken.symbol} returned`);
-	    };
+                    ${this.token.formatAmount(redeemTokens)} ${this.token.symbol} redeemed
+                    ${this.underlyingToken.formatAmount(redeemAmount)} ${this.underlyingToken.symbol} returned`);
+            };
 
-	    this.onBorrow = ({borrower, borrowAmount, accountBorrows, totalBorrows}) => {
+            this.onBorrow = ({borrower, borrowAmount, accountBorrows, totalBorrows}) => {
                 // User borrowed borrowAmount tokens, new borrow balance is accountBorrows
 
                 console.log(`[${this.underlyingToken.symbol}] BORROW ${borrower} 
-		    ${this.underlyingToken.formatAmount(borrowAmount)} borrowed
-		    ${this.underlyingToken.formatAmount(accountBorrows)} outstanding`);
+                    ${this.underlyingToken.formatAmount(borrowAmount)} borrowed
+                    ${this.underlyingToken.formatAmount(accountBorrows)} outstanding`);
 
                 this.totalBorrows = totalBorrows;
                 this.totalCash = this.totalCash.sub(borrowAmount);
@@ -644,17 +644,17 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                 let borrowerData = borrower in accounts ? accounts[borrower][this.address] : undefined;
 
                 if (borrowerData !== undefined) {
-		    borrowerData.borrows = accountBorrows;
-		    borrowerData.borrowIndex = this.borrowIndex;
+                    borrowerData.borrows = accountBorrows;
+                    borrowerData.borrowIndex = this.borrowIndex;
                 }
-	    };
+            };
 
-	    this.onRepayBorrow = ({payer, borrower, repayAmount, accountBorrows, totalBorrows}) => {
+            this.onRepayBorrow = ({payer, borrower, repayAmount, accountBorrows, totalBorrows}) => {
                 // User repaid the borrow with repayAmount
 
                 console.log(`[${this.underlyingToken.symbol}] REPAY_BORROW - ${borrower}
-		    ${this.underlyingToken.formatAmount(repayAmount)} repaid
-		    ${this.underlyingToken.formatAmount(accountBorrows)} outstanding`);
+                    ${this.underlyingToken.formatAmount(repayAmount)} repaid
+                    ${this.underlyingToken.formatAmount(accountBorrows)} outstanding`);
 
                 this.totalBorrows = totalBorrows;
                 this.totalCash = this.totalCash.add(repayAmount);
@@ -662,11 +662,11 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                 let borrowerData = borrower in accounts ? accounts[borrower][this.address] : undefined;
 
                 if (borrowerData !== undefined) {
-		    borrowerData.borrows = accountBorrows;
+                    borrowerData.borrows = accountBorrows;
                 }
-	    };
+            };
 
-	    this.onLiquidateBorrow = ({liquidator, borrower, repayAmount, cTokenCollateral, seizeTokens}) => {
+            this.onLiquidateBorrow = ({liquidator, borrower, repayAmount, cTokenCollateral, seizeTokens}) => {
                 // Another account liquidated the borrowing account by repaying repayAmount and seizing seizeTokens of cTokenCollateral
                 // There is an associated Transfer event
                 let operatorLiquidated = liquidator === operatingAccountGlobal.address;
@@ -678,21 +678,21 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 
                 let oursFmt = operatorLiquidated ? 'BANG!' : '';
                 console.log(`[${this.underlyingToken.symbol}] LIQUIDATE_BORROW - ${oursFmt} ${liquidator} ${borrower}
-		    ${repayAmountFmt} ${this.underlyingToken.symbol} repaid
-		    ${seizeTokensFmt} ${collateralData.token.symbol} collateral seized`);
+                    ${repayAmountFmt} ${this.underlyingToken.symbol} repaid
+                    ${seizeTokensFmt} ${collateralData.token.symbol} collateral seized`);
 
                 let borrowerData = borrower in accounts ? accounts[borrower][this.address] : undefined;
 
                 if (borrowerData !== undefined) {
-		    borrowerData.borrows = borrowerData.borrows.sub(repayAmount);
+                    borrowerData.borrows = borrowerData.borrows.sub(repayAmount);
                 }
 
                 sendMessage('LIQUIDATE_OBSERVED', `liquidation 
                     ${oursFmt} liquidator ${liquidator} borrower ${borrower} 
                     ${repayAmountFmt} ${this.underlyingToken.symbol} => ${seizeTokensFmt} ${collateralData.token.symbol}`);
-	    };
+            };
 
-	    this.onTransfer = ({from, to, amount}) => {
+            this.onTransfer = ({from, to, amount}) => {
                 let src = from;
                 let dst = to;
 
@@ -704,21 +704,21 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                 let dstBalance = constants.ZERO;
 
                 if (src == this.address) {
-		    // Mint - add tokens to total supply
-		    srcBalance = this.totalSupply = this.totalSupply.add(amount);
+                    // Mint - add tokens to total supply
+                    srcBalance = this.totalSupply = this.totalSupply.add(amount);
                 } else {
-		    if (srcTracker !== undefined) {
+                    if (srcTracker !== undefined) {
                         srcBalance = srcTracker.tokens = srcTracker.tokens.sub(amount);
-		    }
+                    }
                 }
 
-		 if (dst == this.address) {
-		    // Redeem - remove tokens from total supply
-		    dstBalance = this.totalSupply = this.totalSupply.sub(amount);
+                 if (dst == this.address) {
+                    // Redeem - remove tokens from total supply
+                    dstBalance = this.totalSupply = this.totalSupply.sub(amount);
                 } else {
-		    if (dstTracker !== undefined) {
+                    if (dstTracker !== undefined) {
                         dstBalance = dstTracker.tokens = dstTracker.tokens.add(amount);
-		    }
+                    }
                 }
 
                 let underlying = this.underlyingToken;
@@ -726,15 +726,15 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                 let fmtAddr = (addr) => addr == this.address ? 'MARKET' : addr;
 
                 console.log(`[${this.underlyingToken.symbol}] TRANSFER ${fmtAddr(src)} => ${fmtAddr(dst)}
-		    ${this.token.formatAmount(amount)} ${this.token.symbol} transferred`);
-	    };
+                    ${this.token.formatAmount(amount)} ${this.token.symbol} transferred`);
+            };
 
             this.onReservesReduced = ({admin, amountReduced, newTotalReserves}) => {
                 console.log(`[${this.underlyingToken.symbol}] RESERVES_REDUCED ${admin}
                          ${this.underlyingToken.formatAmount(this.totalReserves)} ${this.underlyingToken.symbol}
-		    --   ${this.underlyingToken.formatAmount(amountReduced)}
+                    --   ${this.underlyingToken.formatAmount(amountReduced)}
                     -----------------------------
-		         ${this.underlyingToken.formatAmount(newTotalReserves)}`);
+                         ${this.underlyingToken.formatAmount(newTotalReserves)}`);
 
                 this.totalReserves = totalReservesNew;
                 this.totalCash = this.totalCash.sub(amountReduced);
@@ -743,9 +743,9 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
             this.onReservesAdded = ({benefactor, addAmount, newTotalReserves}) => {
                 console.log(`[${this.underlyingToken.symbol}] RESERVES_ADDED ${admin}
                          ${this.underlyingToken.formatAmount(this.totalReserves)} ${this.underlyingToken.symbol}
-		    ++   ${this.underlyingToken.formatAmount(addAmount)}
+                    ++   ${this.underlyingToken.formatAmount(addAmount)}
                     -----------------------------
-		         ${this.underlyingToken.formatAmount(newTotalReserves)}`);
+                         ${this.underlyingToken.formatAmount(newTotalReserves)}`);
 
                 this.totalReserves = newTotalReserves;
                 this.totalCash = this.totalCash.add(addAmount);
@@ -986,13 +986,13 @@ const updateExternalPrices = async () => {
         let [kind, timestamp, symbol, price] = ethers.utils.defaultAbiCoder.decode(['string', 'uint64', 'string', 'uint64'], coinbase.messages[i]);
         let normalizedSymbol = symbol === 'BTC' ? 'WBTC' : symbol;
         updatedCoinbasePrices[normalizedSymbol] = {
-	    message: coinbase.messages[i],
-	    signature: coinbase.signatures[i],
-	    rawSymbol: symbol,
-	    normalizedSymbol,
-	    rawPrice: price, // this is the raw price, same as what comes thru on onPriceUpdate
-	    normalizedPrice: normalizeRawPrice(price),
-	    timestamp,
+            message: coinbase.messages[i],
+            signature: coinbase.signatures[i],
+            rawSymbol: symbol,
+            normalizedSymbol,
+            rawPrice: price, // this is the raw price, same as what comes thru on onPriceUpdate
+            normalizedPrice: normalizeRawPrice(price),
+            timestamp,
         };
     }
     coinbasePricesGlobal = updatedCoinbasePrices;
@@ -1040,12 +1040,12 @@ const run = async () => {
     let lastBlock = startBlock;
 
     while (true) {
-    	// Just log to csv everytime, TODO remove after validating
+            // Just log to csv everytime, TODO remove after validating
         (async () => {
-	    const csv = new ObjectsToCsv(liquidationRecords);
+            const csv = new ObjectsToCsv(liquidationRecords);
 
-	    // Save to file:
-	    await csv.toDisk('./liquidationRecords.csv');
+            // Save to file:
+            await csv.toDisk('./liquidationRecords.csv');
         })();
 
         // fetch the latest block
@@ -1063,7 +1063,7 @@ const run = async () => {
         let tasks = [];
 
         for (let market of Object.values(markets)) {
-	    let task = market.queryFilter('*', lastBlock + 1, blockNumber);
+            let task = market.queryFilter('*', lastBlock + 1, blockNumber);
             tasks.push(task);
         }
 
@@ -1102,13 +1102,13 @@ const run = async () => {
                 }
             } else if (ev.address === uniswapOracle.address) {
                 if (ev['event'] === 'PriceUpdated') {
-		    onPriceUpdated(ev.args.symbol, ev.args.price, markets);                
+                    onPriceUpdated(ev.args.symbol, ev.args.price, markets);                
                 }
             } else {
                 let eventHandler = markets[ev.address]._data['on' + ev['event']];
 
                 try {
-		    eventHandler(ev.args);
+                    eventHandler(ev.args);
                 } catch (err) {
                     console.log(ev);
                     throw err;
