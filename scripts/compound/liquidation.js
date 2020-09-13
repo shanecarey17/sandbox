@@ -1,10 +1,10 @@
+const process = require('process'); // eslint
+
 require('console-stamp')(console);
 
 const axios = require('axios');
 const assert = require('assert');
 const fs = require('fs');
-const util = require('util');
-const ObjectsToCsv = require('objects-to-csv');
 
 const bre = require('@nomiclabs/buidler');
 const {ethers, deployments} = bre;
@@ -18,9 +18,6 @@ const COMPTROLLER_ABI = JSON.parse(fs.readFileSync('abi/compound/comptroller.jso
 const CTOKEN_V1_ABI = JSON.parse(fs.readFileSync('abi/compound/ctoken_v1.json'));
 const CTOKEN_V2_ABI = JSON.parse(fs.readFileSync('abi/compound/ctoken_v2.json'));
 
-const PRICE_ORACLE_ADDRESS = ethers.utils.getAddress('0xDDc46a3B076aec7ab3Fc37420A8eDd2959764Ec4');
-const PRICE_ORACLE_ABI = JSON.parse(fs.readFileSync('abi/compound/priceoracle.json'));
-
 const UNISWAP_ANCHORED_VIEW_ADDRESS = ethers.utils.getAddress('0x9B8Eb8b3d6e2e0Db36F41455185FEF7049a35CaE');
 const UNISWAP_ANCHORED_VIEW_ABI = JSON.parse(fs.readFileSync('abi/compound/uniswapanchoredview.json'));
 
@@ -28,7 +25,7 @@ const UNISWAP_FACTORY_ADDRESS = ethers.utils.getAddress('0x5C69bEe701ef814a2B6a3
 
 // tokens
 const WETH_ADDRESS = ethers.utils.getAddress('0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2');
-const USDT_ADDRESS = ethers.utils.getAddress('0xdac17f958d2ee523a2206206994597c13d831ec7');
+const DAI_ADDRESS = ethers.utils.getAddress('0x6B175474E89094C44Da98b954EedeAC495271d0F');
 
 // v2 ctokens
 const CDAI_ADDRESS = ethers.utils.getAddress('0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643');
@@ -66,31 +63,12 @@ let isLiveGlobal = false;
 
 let isDoneGlobal = false;
 
+let shutdownRequestedGlobal = false;
+
 // Start code
 
-const liquidationRecords = [];
-const addLiquidationRecord = (
-    account, borrowedMarket, collateralMarket, 
-    repayBorrowAmount, seizeAmount, estimatedSeizeAmount, shortfallEth, 
-    repaySupplyWasLarger, reserveIn, reserveOut, amountIn, err
-) => {
-    liquidationRecords.push({
-        account,
-        borrowedMarket,
-        repayBorrowAmount: repayBorrowAmount.toString(),
-        collateralMarket,
-        borrowAndCollateralMarket: `${borrowedMarket}-${collateralMarket}`,
-        seizeAmount: seizeAmount.toString(),
-        estimatedSeizeAmount,
-        shortfallEth,
-        works: err === '' ? 'Y' : 'N',
-        repaySupplyWasLarger: repaySupplyWasLarger ? 'Y' : 'N',
-        amountOut: repayBorrowAmount.toString(),
-        reserveOut: reserveOut.toString(),
-        reserveIn: reserveIn.toString(),
-        amountIn: amountIn.toString(),
-        err
-    });
+const doShutdown = () => {
+    shutdownRequestedGlobal = true;
 };
 
 const sendMessage = async (subject, message) => {
@@ -176,13 +154,11 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
         await sendMessage('LIQUIDATION', `FAILED TO LIQUIDATE ACCOUNT ${account} ${err}`);
     } 
 
-    console.log('EXITING');
-    process.exit();
+    // Shut down the app after attempt
+    doShutdown();
 };
 
 // TODO add caching
-const uniswapPairs = {};
-
 const getUniswapPair = async (borrowMarketUnderlyingAddress, collateralMarketUnderlyingAddress) => {
     if (borrowMarketUnderlyingAddress === collateralMarketUnderlyingAddress) {
         if (borrowMarketUnderlyingAddress === WETH_ADDRESS) {
@@ -697,31 +673,26 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                 let dst = to;
 
                 // Token balances were adjusted by amount, if src or dst is the contract itself update totalSupply
-                let srcTracker = src in accounts ? accounts[src][this.address] : undefined;
-                let dstTracker = dst in accounts ? accounts[dst][this.address] : undefined;
-
-                let srcBalance = constants.ZERO;
-                let dstBalance = constants.ZERO;
+                let srcAccount = src in accounts ? accounts[src][this.address] : undefined;
+                let dstAccount = dst in accounts ? accounts[dst][this.address] : undefined;
 
                 if (src == this.address) {
                     // Mint - add tokens to total supply
-                    srcBalance = this.totalSupply = this.totalSupply.add(amount);
+                    this.totalSupply = this.totalSupply.add(amount);
                 } else {
-                    if (srcTracker !== undefined) {
-                        srcBalance = srcTracker.tokens = srcTracker.tokens.sub(amount);
+                    if (srcAccount !== undefined) {
+                        srcAccount.tokens = srcAccount.tokens.sub(amount);
                     }
                 }
 
                 if (dst == this.address) {
                     // Redeem - remove tokens from total supply
-                    dstBalance = this.totalSupply = this.totalSupply.sub(amount);
+                    this.totalSupply = this.totalSupply.sub(amount);
                 } else {
-                    if (dstTracker !== undefined) {
-                        dstBalance = dstTracker.tokens = dstTracker.tokens.add(amount);
+                    if (dstAccount !== undefined) {
+                        dstAccount.tokens = dstAccount.tokens.add(amount);
                     }
                 }
-
-                let underlying = this.underlyingToken;
 
                 let fmtAddr = (addr) => addr == this.address ? 'MARKET' : addr;
 
@@ -736,7 +707,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                     -----------------------------
                          ${this.underlyingToken.formatAmount(newTotalReserves)}`);
 
-                this.totalReserves = totalReservesNew;
+                this.totalReserves = newTotalReserves;
                 this.totalCash = this.totalCash.sub(amountReduced);
             };
 
@@ -830,7 +801,6 @@ const getAccounts = async (markets, blockNumber) => {
 
             let exchangeRate = market._data.getExchangeRate();
 
-            let cToken = market._data.token;
             let underlying = market._data.underlyingToken;
 
             let tracker = {
@@ -1039,15 +1009,7 @@ const run = async () => {
 
     let lastBlock = startBlock;
 
-    while (true) {
-        // Just log to csv everytime, TODO remove after validating
-        (async () => {
-            const csv = new ObjectsToCsv(liquidationRecords);
-
-            // Save to file:
-            await csv.toDisk('./liquidationRecords.csv');
-        })();
-
+    while (!shutdownRequestedGlobal) {
         // fetch the latest block
         let blockNumber = await ethers.provider.getBlockNumber();
 
@@ -1128,6 +1090,10 @@ const run = async () => {
         // try liquidation with updated state
         doLiquidation();
     }
+
+    console.log('EXITING');
+
+    await sendMessage('EXIT', 'Liquidator exiting');
 };
 
 module.exports = async (isLive) => {
@@ -1139,6 +1105,11 @@ module.exports = async (isLive) => {
 
     isLiveGlobal = isLive;
 
+    // Graceful termination
+    process.on('SIGINT', () => doShutdown());
+    process.on('SIGTERM', () => doShutdown());
+
+    // Kill immediately on error
     process.on('unhandledRejection', async (err) => {
         console.error(`UNHANDLED REJECTION ${err}`);
 
