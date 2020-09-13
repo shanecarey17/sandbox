@@ -728,18 +728,27 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		    ${this.token.formatAmount(amount)} ${this.token.symbol} transferred`);
 	    };
 
-            // TODO this is wrong
-            /*
-	    this.doReservesAdded = ({admin, amountReduced, totalReservesNew}) => {
-		console.log(`[${this.underlyingToken.symbol}] RESERVES_REDUCED
-		    +${this.underlyingToken.formatAmount(amountAdded)} ${this.underlyingToken.symbol}
-		    ${this.underlyingToken.formatAmount(totalReservesNew)} ${this.underlyingToken.symbol}`);
+            this.doReservesReduced = ({admin, amountReduced, newTotalReserves}) => {
+		console.log(`[${this.underlyingToken.symbol}] RESERVES_REDUCED ${admin}
+                         ${this.underlyingToken.formatAmount(this.totalReserves)} ${this.underlyingToken.symbol}
+		    --   ${this.underlyingToken.formatAmount(amountReduced)}
+                    -----------------------------
+		         ${this.underlyingToken.formatAmount(newTotalReserves)}`);
 
-		this.totalReserves = totalReservesNew;
-		this.totalCash = this.totalCash.sub(amountReduced);
-	    };*/
+                this.totalReserves = totalReservesNew;
+                this.totalCash = this.totalCash.sub(amountReduced);
+            }
 
-            // TODO reserves reduced
+            this.doReservesAdded = ({benefactor, addAmount, newTotalReserves}) => {
+		console.log(`[${this.underlyingToken.symbol}] RESERVES_ADDED ${admin}
+                         ${this.underlyingToken.formatAmount(this.totalReserves)} ${this.underlyingToken.symbol}
+		    ++   ${this.underlyingToken.formatAmount(addAmount)}
+                    -----------------------------
+		         ${this.underlyingToken.formatAmount(newTotalReserves)}`);
+
+                this.totalReserves = newTotalReserves;
+                this.totalCash = this.totalCash.add(addAmount);
+            }
 
             this.doFailure = () => {
                 console.log(`[${this.underlyingToken.symbol}] FAILURE`);
