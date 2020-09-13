@@ -948,25 +948,30 @@ const updateAccountBalance = async (operatingAddress) => {
 };
 
 const updateExternalPrices = async () => {
-    let response = await axios.get('https://prices.compound.finance');
-    let {coinbase} = response.data;
-    console.log(`FETCHED COINBASE PRICES: ${JSON.stringify(coinbase.prices)}`);
+    try {
+        let response = await axios.get('https://prices.compound.finance');
+        let {coinbase} = response.data;
+        console.log(`FETCHED COINBASE PRICES: ${JSON.stringify(coinbase.prices)}`);
 
-    const updatedCoinbasePrices = {};
-    for(let i = 0; i < coinbase.messages.length; i++) {
-        let [kind, timestamp, symbol, price] = ethers.utils.defaultAbiCoder.decode(['string', 'uint64', 'string', 'uint64'], coinbase.messages[i]);
-        let normalizedSymbol = symbol === 'BTC' ? 'WBTC' : symbol;
-        updatedCoinbasePrices[normalizedSymbol] = {
-            message: coinbase.messages[i],
-            signature: coinbase.signatures[i],
-            rawSymbol: symbol,
-            normalizedSymbol,
-            rawPrice: price, // this is the raw price, same as what comes thru on onPriceUpdate
-            normalizedPrice: normalizeRawPrice(price),
-            timestamp,
-        };
+        const updatedCoinbasePrices = {};
+        for(let i = 0; i < coinbase.messages.length; i++) {
+            let [kind, timestamp, symbol, price] = ethers.utils.defaultAbiCoder.decode(['string', 'uint64', 'string', 'uint64'], coinbase.messages[i]);
+            let normalizedSymbol = symbol === 'BTC' ? 'WBTC' : symbol;
+            updatedCoinbasePrices[normalizedSymbol] = {
+                message: coinbase.messages[i],
+                signature: coinbase.signatures[i],
+                rawSymbol: symbol,
+                normalizedSymbol,
+                rawPrice: price, // this is the raw price, same as what comes thru on onPriceUpdate
+                normalizedPrice: normalizeRawPrice(price),
+                timestamp,
+            };
+        }
+
+        coinbasePricesGlobal = updatedCoinbasePrices;
+    } catch (err) {
+        console.log(constants.CONSOLE_RED, 'FAILED TO FETCH EXTERNAL PRICES');
     }
-    coinbasePricesGlobal = updatedCoinbasePrices;
     
     let task = new Promise(resolve => setTimeout(resolve, 10 * 1000));
     task.then(() => updateExternalPrices());
