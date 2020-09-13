@@ -43,11 +43,13 @@ contract CompoundLiquidatorWrapper {
         bytes[] calldata signatures, 
         string[] calldata symbols
     ) external returns (uint) {
-        // Do this check here so we dont fail a tx in the oracle contract (sus!), oracle does the same check
-        require(messages.length == signatures.length, "messages and signatures must be 1:1");
+        if (messages.length > 0) {
+            // Do this check here so we dont fail a tx in the oracle contract (sus!), oracle does the same check
+	    require(messages.length == signatures.length, "messages and signatures must be 1:1");
 
-        // post the prices to the oracle
-        IUniswapAnchoredView(uniswapAnchoredView).postPrices(messages, signatures, symbols);
+	    // post the prices to the oracle
+	    IUniswapAnchoredView(uniswapAnchoredView).postPrices(messages, signatures, symbols);
+        }
 
         // do the liquidation with the new prices
         return ICompoundLiquidator(liquidator).liquidate(borrowAccount, cTokenBorrowed, cTokenCollateral, repayBorrowAmount);

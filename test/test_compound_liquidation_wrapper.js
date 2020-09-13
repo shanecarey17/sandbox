@@ -30,7 +30,7 @@ describe("LiquidatorWrapper", async () => {
 		liquidatorWrapperContract = await ethers.getContractAt("CompoundLiquidatorWrapper", liqWrapperDeployment.address);
 	});
 
-	it.only('test post price & zap', async () => {
+	it('test post price & zap', async () => {
 		const symbols = ['BTC', 'ETH', 'DAI', 'REP', 'ZRX', 'BAT', 'KNC', 'LINK', 'COMP'];
 		let response = await axios.get('https://prices.compound.finance');
 		let {coinbase, okex} = response.data;
@@ -45,6 +45,24 @@ describe("LiquidatorWrapper", async () => {
 			symbols,
 			{
 				gasLimit: 5	 * 10**6, // estimate gas on ganache has bug
+			}
+		);
+		let txDone = await result.wait();
+		console.log(`GAS USED ${txDone.gasUsed.toString()}`);
+	});
+
+	it('test post empty prices & zap', async () => {
+		await liquidatorContract.enterMarkets(COMPTROLLER_ADDRESS, [CDAI, CETH]);
+		let result = await liquidatorWrapperContract.liquidate(
+			"0x3596c017ad351628Cd31980837c0938ddBaD7E49",
+			CDAI,
+			CETH,
+			"100000000000000000",
+			[],
+			[],
+			[],
+			{
+			    gasLimit: 5 * 10**6, // estimate gas on ganache has bug
 			}
 		);
 		let txDone = await result.wait();
