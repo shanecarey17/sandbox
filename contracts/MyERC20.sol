@@ -5,7 +5,7 @@ interface MyERC20 {
     function balanceOf(address _owner) external view returns (uint balance);
     function transfer(address _to, uint _value) external returns (bool success);
     function transferFrom(address _from, address _to, uint _value) external returns (bool success);
-    function approve(address _spender, uint _value) external returns (bool success);
+    function approve(address _spender, uint _value) external;
     function allowance(address _owner, address _spender) external view returns (uint remaining);
     function decimals() external view returns(uint digits);
     function symbol() external view returns (string memory symb);

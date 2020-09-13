@@ -2,7 +2,7 @@ module.exports = async ({ getNamedAccounts, deployments, getChainId }) => {
     const { deploy } = deployments;
     const { deployer } = await getNamedAccounts();
 
-    const deployResult = await deploy("StrategyV1", {
+    const deployResult = await deploy("CompoundLiquidator", {
         from: deployer,
         gas: 100000,
         args: []
@@ -11,8 +11,8 @@ module.exports = async ({ getNamedAccounts, deployments, getChainId }) => {
     const chainId = await getChainId();
 
     if (deployResult.newlyDeployed) {
-        console.log(`STRATEGY DEPLOYED (${chainId}) @ ${deployResult.address}`);
+        console.log(`LIQUIDATOR DEPLOYED (${chainId}) @ ${deployResult.address}`);
     }
 };
 
-module.exports.tags = ['strategy'];
+module.exports.tags = ['liquidator'];

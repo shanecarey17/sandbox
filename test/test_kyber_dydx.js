@@ -10,10 +10,11 @@ const TEN = ethers2.BigNumber.from(10);
 // https://etherscan.io/address/0x6b175474e89094c44da98b954eedeac495271d0f
 const DAI_WHALE = "0x9eB7f2591ED42dEe9315b6e2AAF21bA85EA69F8C";
 
-describe("Strategy", async function() {
+// SKIPPED!!!!
+describe.skip("Strategy", async function() {
     // Deploy strategy
     before(async () => {
-        await deployments.fixture();
+        await deployments.fixture('strategy'); // tag
     });
 
     let doTrade = async (tokens) => {

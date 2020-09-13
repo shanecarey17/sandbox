@@ -63,4 +63,12 @@ library Utils {
     function getBalance(address addr) internal view returns (uint) {
         return addr.balance;
     }
+
+    function compareStrings(string memory a, string memory b) public pure returns (bool) {
+      return (keccak256(abi.encodePacked((a))) == keccak256(abi.encodePacked((b))));
+    }
+
+    function concat(string memory a, string memory b) internal pure returns (string memory) {
+        return string(abi.encodePacked(a, b));
+    }
 }

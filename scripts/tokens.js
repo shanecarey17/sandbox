@@ -4,7 +4,6 @@ const axios = require('axios');
 const ethers = require("@nomiclabs/buidler").ethers;
 const readline = require('readline');
 
-const wallet = require('./wallet.js');
 const constants = require('./constants.js');
 
 const coinMarketCapEndpoint = 'https://pro-api.coinmarketcap.com';
@@ -16,13 +15,14 @@ const etherscanApiKey = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
 // Token
 
 function Token(contract, symbol, decimals, price) {
+    this.address = contract.address;
     this.contract = contract;
     this.symbol = symbol;
     this.decimals = decimals;
     this.price = price;
     this.ethRate = 0;
 
-    thistoString = () => {
+    this.toString = () => {
         return this.contract.address;
     }
 
@@ -36,6 +36,10 @@ function Token(contract, symbol, decimals, price) {
         }
 
         return await this.contract.balanceOf(address);
+    }
+
+    this.parseAmount = (amt) => {
+        return ethers.BigNumber.from(String(BigInt(Math.floor(parseFloat(amt) * 10**this.decimals))));
     }
 }
 
@@ -61,14 +65,20 @@ function TokenFactory() {
         }
     }
 
-    let loadToken = async (address) => {
+    this.loadToken = async (address) => {
+        let cached = this.getTokenByAddress(address);
+
+        if (cached !== undefined) {
+            return cached;
+        }
+
         // TODO, this isnt a great way to deal with kyber's ETH address
         var contract = {address: constants.ETH_ADDRESS};
         var symbol = 'ETH';
         var decimals = ethers.BigNumber.from(18);
 
         if (address != constants.ETH_ADDRESS) {
-            contract = await ethers.getContractAt('MyERC20', address, wallet);
+            contract = await ethers.getContractAt('MyERC20', address);
             decimals = await contract.decimals();
             symbol = '';
 
@@ -100,8 +110,6 @@ function TokenFactory() {
         var token = new Token(contract, symbol, decimals, price);
 
         this.tokens[address] = token;
-
-        appendTokenToFile(address);
 
         return token;
     }
@@ -137,7 +145,7 @@ function TokenFactory() {
             addresses[address] = true;
 
             tasks.push((async (address) => {
-                let token = await loadToken(address);
+                let token = await this.loadToken(address);
 
                 console.log(`Loaded token from config ${token.symbol} ${token.contract.address}`);
             })(address));
@@ -154,34 +162,11 @@ function TokenFactory() {
         console.log('TOKENS INITIALIZED');
     }
 
-    let appendTokenToFile = (address) => {
-        //fs.appendFileSync(constants.TOKENS_FILENAME, address.trim() + '\n');
-    }
-
     this.getTokenByAddress = (address) => {
         if (address in this.tokens) {
             return this.tokens[address];
         }
-
-        // if (!(address.startsWith('0x'))) {
-        //     throw new Error(`INVALID TOKEN ADDRESS ${address}`);
-        // }
-
-        // let px = await loadToken(address);
-
-        // this.tokens[address] = px;
-
-        // return px;
     }
-
-    // this.getTokenBySymbol = (symbol) => {
-    //     debugger;
-    //     for (const [address, token] of Object.entries(this.tokens)) {
-    //         if (token.symbol == symbol) {
-    //             return token;
-    //         }
-    //     }
-    // }
 
     this.getEthToken = () => {
         return this.tokens[constants.ETH_ADDRESS];
