@@ -336,7 +336,7 @@ const doLiquidation = () => {
         }
 
         let coinbaseSymbols = coinbaseEntries.map(({symbol}) => symbol);
-        console.log(`Posting prices for: ${JSON.stringify(coinbaseSymbols)}`);
+        console.log(`++ UPDATES PRICES ${JSON.stringify(coinbaseSymbols)}`);
 
         // underlying balance
         let balanceSupplied = maxSuppliedEthMarket.tokens // no collateral factor for repay calc
@@ -370,19 +370,15 @@ const doLiquidation = () => {
         console.log(`++ REVENUE  ${ethToken.formatAmount(revenue)} USD`);
 
         // Calculate gas costs
-        let ethPrice = markets[CETH_ADDRESS]._data.underlyingPrice; // get the 
+        let ethPrice = markets[CETH_ADDRESS]._data.underlyingPrice; 
         let liquidationGasCostUSD = liquidationGasCost.mul(ethPrice).div(EXPONENT);
-        console.log(`++ GAS COST ${ethToken.formatAmount(liquidationGasCostUSD)} USD / ${ethers.utils.formatEther(liquidationGasCost)} ETH (${LIQUIDATE_GAS_ESTIMATE} @ ${ethers.utils.formatUnits(gasPriceGlobal, 'gwei')} gwei) (${ethers.utils.formatEther(operatingAccountBalanceGlobal)} avail.)`);
+        let gasLineColor = liquidationGasCost.gt(operatingAccountBalanceGlobal) ? constants.CONSOLE_RED : constants.CONSOLE_DEFAULT;
+        console.log(gasLineColor, `++ GAS COST ${ethToken.formatAmount(liquidationGasCostUSD)} USD / ${ethers.utils.formatEther(liquidationGasCost)} ETH (${LIQUIDATE_GAS_ESTIMATE} @ ${ethers.utils.formatUnits(gasPriceGlobal, 'gwei')} gwei) (${ethers.utils.formatEther(operatingAccountBalanceGlobal)} avail.)`);
 
         // Calculate profit
         let profit = revenue.sub(liquidationGasCostUSD);
         let profitColor = profit.gt(0) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
         console.log(profitColor, `++ PROFIT ${ethToken.formatAmount(profit)} USD`);
-
-        if (liquidationGasCost.gt(operatingAccountBalanceGlobal)) {
-            console.log('cant liquidate with gas greater than account balance');
-            continue;
-        }
 
         if (profit.gt(0)) {
             liquidationCandidates.push({
@@ -404,6 +400,11 @@ const doLiquidation = () => {
 
     if (liquidationCandidates.length == 0) {
         console.log(constants.CONSOLE_RED, 'NO LIQUIDATION CANDIDATES');
+        return;
+    }
+
+    if (liquidationGasCost.gt(operatingAccountBalanceGlobal)) {
+        console.log(constants.CONSOLE_RED, 'INSUFFICIENT GAS');
         return;
     }
 
@@ -712,7 +713,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
             };
 
             this.onReservesAdded = ({benefactor, addAmount, newTotalReserves}) => {
-                console.log(`[${this.underlyingToken.symbol}] RESERVES_ADDED ${admin}
+                console.log(`[${this.underlyingToken.symbol}] RESERVES_ADDED ${benefactor}
                          ${this.underlyingToken.formatAmount(this.totalReserves)} ${this.underlyingToken.symbol}
                     ++   ${this.underlyingToken.formatAmount(addAmount)}
                     -----------------------------
