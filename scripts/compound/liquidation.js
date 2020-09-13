@@ -60,6 +60,7 @@ let coinbasePricesGlobal = {};
 let accountsGlobal = {};
 
 let gasPriceGlobal = undefined;
+let requiresAccountBalanceUpdateGlobal = false;
 
 let isLiveGlobal = false;
 
@@ -921,6 +922,19 @@ const updateGasPrice = async () => {
         console.log(`GAS RESULT (provider) ${ethers.utils.formatUnits(gasPriceGlobal, 'gwei')}`);
     }
 
+    // If the account has insufficient balance, notify
+    let gasCost = LIQUIDATE_GAS_ESTIMATE.mul(gasPriceGlobal);
+    if (gasCost.gt(operatingAccountBalanceGlobal) && !requiresAccountBalanceUpdateGlobal) {
+        requiresAccountBalanceUpdateGlobal = true;
+
+        let operatorBalanceFmt = ethers.utils.formatEther(operatingAccountBalanceGlobal); 
+        let gasCostFmt = ethers.utils.formatEther(gasCost);
+        let gasPriceFmt = ethers.utils.formatUnits(gasPriceGlobal, 'gwei');
+
+        sendMessage('GAS_REQUIRED', 
+            `Operator balance insuffucient for gas! bal. ${operatorBalanceFmt} < ${gasCostFmt} ETH (@ ${gasPriceFmt} gwei)`);
+    }
+
     let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
     task.then(() => updateGasPrice());
 }
@@ -941,9 +955,20 @@ const getOperatingAccount = async () => {
 
 const updateAccountBalance = async (operatingAddress) => {
     let operatorBalance = await ethers.provider.getBalance(operatingAddress);
+
+    let balanceFmt = ethers.utils.formatEther(operatorBalance);
+
+    if (operatingAccountBalanceGlobal !== undefined && !operatorBalance.eq(operatingAccountBalanceGlobal)) {
+        requiresAccountBalanceUpdateGlobal = false;
+
+        let prevBalanceFmt = ethers.utils.formatEther(operatingAccountBalanceGlobal);
+
+        sendMessage('BALANCE_UPDATED', `Operating account balance updated ${prevBalanceFmt} => ${balanceFmt} ETH`);
+    }
+
     operatingAccountBalanceGlobal = operatorBalance;
 
-    console.log(`OPERATING ACCOUNT ${operatingAddress} BALANCE ${ethers.utils.formatEther(operatorBalance)}`);
+    console.log(`OPERATING ACCOUNT ${operatingAddress} BALANCE ${balanceFmt}`);
 
     let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
     task.then(() => updateAccountBalance(operatingAddress));
