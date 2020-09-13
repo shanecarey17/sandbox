@@ -589,7 +589,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                     .div(this.totalSupply);
             }
 
-            this.doAccrueInterest = ({interestAccumulated, borrowIndex, totalBorrows}) => {
+            this.onAccrueInterest = ({interestAccumulated, borrowIndex, totalBorrows}) => {
                 // TODO do we need to use cashPrior for v2
 		this.borrowIndex = borrowIndex;
 		this.totalBorrows = totalBorrows;
@@ -601,7 +601,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		    ${this.underlyingToken.formatAmount(interestAccumulated)} ${this.underlyingToken.symbol} interestAccumulated`);
 	    };
 
-	    this.doMint = ({minter, mintAmount, mintTokens}) => {
+	    this.onMint = ({minter, mintAmount, mintTokens}) => {
 		// User supplied mintAmount to the pool and receives mintTokens cTokens in exchange
 		// Followed by Transfer event
 
@@ -619,7 +619,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		}
 	    };
 
-	    this.doRedeem = ({redeemer, redeemAmount, redeemTokens}) => {
+	    this.onRedeem = ({redeemer, redeemAmount, redeemTokens}) => {
 		// User redeemed redeemTokens cTokens for redeemAmount underlying
 		// Preceded by Transfer event
 
@@ -630,7 +630,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		    ${this.underlyingToken.formatAmount(redeemAmount)} ${this.underlyingToken.symbol} returned`);
 	    };
 
-	    this.doBorrow = ({borrower, borrowAmount, accountBorrows, totalBorrows}) => {
+	    this.onBorrow = ({borrower, borrowAmount, accountBorrows, totalBorrows}) => {
 		// User borrowed borrowAmount tokens, new borrow balance is accountBorrows
 
 		console.log(`[${this.underlyingToken.symbol}] BORROW ${borrower} 
@@ -648,7 +648,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		}
 	    };
 
-	    this.doRepayBorrow = ({payer, borrower, repayAmount, accountBorrows, totalBorrows}) => {
+	    this.onRepayBorrow = ({payer, borrower, repayAmount, accountBorrows, totalBorrows}) => {
 		// User repaid the borrow with repayAmount
 
 		console.log(`[${this.underlyingToken.symbol}] REPAY_BORROW - ${borrower}
@@ -665,7 +665,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		}
 	    };
 
-	    this.doLiquidateBorrow = ({liquidator, borrower, repayAmount, cTokenCollateral, seizeTokens}) => {
+	    this.onLiquidateBorrow = ({liquidator, borrower, repayAmount, cTokenCollateral, seizeTokens}) => {
 		// Another account liquidated the borrowing account by repaying repayAmount and seizing seizeTokens of cTokenCollateral
 		// There is an associated Transfer event
                 let operatorLiquidated = liquidator === operatingAccountGlobal.address;
@@ -691,7 +691,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                     ${repayAmountFmt} ${this.underlyingToken.symbol} => ${seizeTokensFmt} ${collateralData.token.symbol}`);
 	    };
 
-	    this.doTransfer = ({from, to, amount}) => {
+	    this.onTransfer = ({from, to, amount}) => {
                 let src = from;
                 let dst = to;
 
@@ -728,7 +728,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		    ${this.token.formatAmount(amount)} ${this.token.symbol} transferred`);
 	    };
 
-            this.doReservesReduced = ({admin, amountReduced, newTotalReserves}) => {
+            this.onReservesReduced = ({admin, amountReduced, newTotalReserves}) => {
 		console.log(`[${this.underlyingToken.symbol}] RESERVES_REDUCED ${admin}
                          ${this.underlyingToken.formatAmount(this.totalReserves)} ${this.underlyingToken.symbol}
 		    --   ${this.underlyingToken.formatAmount(amountReduced)}
@@ -739,7 +739,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                 this.totalCash = this.totalCash.sub(amountReduced);
             }
 
-            this.doReservesAdded = ({benefactor, addAmount, newTotalReserves}) => {
+            this.onReservesAdded = ({benefactor, addAmount, newTotalReserves}) => {
 		console.log(`[${this.underlyingToken.symbol}] RESERVES_ADDED ${admin}
                          ${this.underlyingToken.formatAmount(this.totalReserves)} ${this.underlyingToken.symbol}
 		    ++   ${this.underlyingToken.formatAmount(addAmount)}
@@ -750,11 +750,11 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                 this.totalCash = this.totalCash.add(addAmount);
             }
 
-            this.doFailure = () => {
+            this.onFailure = () => {
                 console.log(`[${this.underlyingToken.symbol}] FAILURE`);
             }
 
-            this.doApproval = () => {
+            this.onApproval = () => {
                 console.log(`[${this.underlyingToken.symbol}] APPROVAL`);
             }
 
@@ -1060,7 +1060,7 @@ const run = async () => {
             return a.blockNumber - b.blockNumber;
         });
 
-        // apply events in order to state
+        // apply events in order to state`
         for (let ev of allEvents) {
             if (!('event' in ev)) {
                 // possible issue with the events abi
@@ -1080,7 +1080,7 @@ const run = async () => {
 		    onPriceUpdated(ev.args.symbol, ev.args.price, markets);                
                 }
             } else {
-		let eventHandler = markets[ev.address]._data['do' + ev['event']]
+		let eventHandler = markets[ev.address]._data['on' + ev['event']]
 
                 try {
 		    eventHandler(ev.args);
