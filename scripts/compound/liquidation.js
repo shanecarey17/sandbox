@@ -484,7 +484,7 @@ const onPriceUpdated = (symbol, price, markets) => {
 const onMarketEntered = ({cToken, account}) => {
     let marketData = marketsGlobal[cToken]._data;
 
-    console.log('[${marketData.underlyingToken.symbol}] MARKET_ENTERED ${account}');
+    console.log(`[${marketData.underlyingToken.symbol}] MARKET_ENTERED ${account}`);
 
     if (!(account in accountsGlobal)) {
         return;
@@ -501,7 +501,7 @@ const onMarketEntered = ({cToken, account}) => {
 const onMarketExited = ({cToken, account}) => {
     let marketData = marketsGlobal[cToken]._data;
 
-    console.log('[${marketData.underlyingToken.symbol}] MARKET_EXITED ${account}');
+    console.log(`[${marketData.underlyingToken.symbol}] MARKET_EXITED ${account}`);
 
     if (account in accountsGlobal) {
         delete accountsGlobal[account][cToken];
@@ -612,7 +612,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		    ${this.token.formatAmount(mintTokens)} ${this.token.symbol} minted
 		    ${this.token.formatAmount(this.totalSupply)} totalSupply`);
 
-		let minterData = minter in accounts ? accounts[minter][cTokenContract.address] : undefined;
+		let minterData = minter in accounts ? accounts[minter][this.address] : undefined;
 
 		if (minterData !== undefined) {
 		    minterData.tokens = minterData.tokens.add(mintTokens);
@@ -640,7 +640,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		this.totalBorrows = totalBorrows;
 		this.totalCash = this.totalCash.sub(borrowAmount);
 
-		let borrowerData = borrower in accounts ? accounts[borrower][cTokenContract.address] : undefined;
+		let borrowerData = borrower in accounts ? accounts[borrower][this.address] : undefined;
 
 		if (borrowerData !== undefined) {
 		    borrowerData.borrows = accountBorrows;
@@ -658,7 +658,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		this.totalBorrows = totalBorrows;
 		this.totalCash = this.totalCash.add(repayAmount);
 
-		let borrowerData = borrower in accounts ? accounts[borrower][cTokenContract.address] : undefined;
+		let borrowerData = borrower in accounts ? accounts[borrower][this.address] : undefined;
 
 		if (borrowerData !== undefined) {
 		    borrowerData.borrows = accountBorrows;;
@@ -668,18 +668,27 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 	    this.doLiquidateBorrow = ({liquidator, borrower, repayAmount, cTokenCollateral, seizeTokens}) => {
 		// Another account liquidated the borrowing account by repaying repayAmount and seizing seizeTokens of cTokenCollateral
 		// There is an associated Transfer event
+                let operatorLiquidated = liquidator === operatingAccountGlobal.address;
 
-		let collateralContract = allMarkets[cTokenCollateral];
+		let collateralData = allMarkets[cTokenCollateral]._data;
 
-		console.log(`[${this.underlyingToken.symbol}] LIQUIDATE_BORROW - ${liquidator} ${borrower}
-		    ${this.underlyingToken.formatAmount(repayAmount)} ${this.underlyingToken.symbol} repaid
-		    ${collateralContract._data.token.formatAmount(seizeTokens.toString())} ${collateralContract._data.token.symbol} collateral seized`);
+                let repayAmountFmt = this.underlyingToken.formatAmount(repayAmount);
+                let seizeTokensFmt = collateralData.token.formatAmount(seizeTokens.toString()); // TODO why toString?
 
-		let borrowerData = borrower in accounts ? accounts[borrower][cTokenContract.address] : undefined;
+                let oursFmt = operatorLiquidated ? 'BANG!' : '';
+		console.log(`[${this.underlyingToken.symbol}] LIQUIDATE_BORROW - ${oursFmt} ${liquidator} ${borrower}
+		    ${repayAmountFmt} ${this.underlyingToken.symbol} repaid
+		    ${seizeTokensFmt} ${collateralData.token.symbol} collateral seized`);
+
+		let borrowerData = borrower in accounts ? accounts[borrower][this.address] : undefined;
 
 		if (borrowerData !== undefined) {
 		    borrowerData.borrows = borrowerData.borrows.sub(repayAmount);
 		}
+
+                sendMessage('LIQUIDATE_OBSERVED', `liquidation 
+                    ${oursFmt} liquidator ${liquidator} borrower ${borrower} 
+                    ${repayAmountFmt} ${this.underlyingToken.symbol} => ${seizeTokensFmt} ${collateralData.token.symbol}`);
 	    };
 
 	    this.doTransfer = ({from, to, amount}) => {
@@ -687,13 +696,13 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                 let dst = to;
 
 		// Token balances were adjusted by amount, if src or dst is the contract itself update totalSupply
-		let srcTracker = src in accounts ? accounts[src][cTokenContract.address] : undefined;
-		let dstTracker = dst in accounts ? accounts[dst][cTokenContract.address] : undefined;
+		let srcTracker = src in accounts ? accounts[src][this.address] : undefined;
+		let dstTracker = dst in accounts ? accounts[dst][this.address] : undefined;
 
 		let srcBalance = constants.ZERO;
 		let dstBalance = constants.ZERO;
 
-		if (src == cTokenContract.address) {
+		if (src == this.address) {
 		    // Mint - add tokens to total supply
 		    srcBalance = this.totalSupply = this.totalSupply.add(amount);
 		} else {
@@ -702,7 +711,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 		    }
 		}
 
-		 if (dst == cTokenContract.address) {
+		 if (dst == this.address) {
 		    // Redeem - remove tokens from total supply
 		    dstBalance = this.totalSupply = this.totalSupply.sub(amount);
 		} else {
@@ -713,7 +722,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 
 		let underlying = this.underlyingToken;
 
-		let fmtAddr = (addr) => addr == cTokenContract.address ? 'MARKET' : addr;
+		let fmtAddr = (addr) => addr == this.address ? 'MARKET' : addr;
 
 		console.log(`[${this.underlyingToken.symbol}] TRANSFER ${fmtAddr(src)} => ${fmtAddr(dst)}
 		    ${this.token.formatAmount(amount)} ${this.token.symbol} transferred`);
@@ -907,13 +916,15 @@ const updateGasPrice = async () => {
     task.then(() => updateGasPrice());
 }
 
-const loadOperatingAccount = async () => {
+const getOperatingAccount = async () => {
     // Load the operating address, 0th in buidler configuration
     let signers = await ethers.getSigners();
     let operatingAccount = signers[0];
     operatingAccountGlobal = operatingAccount;
 
     let operatingAddress = await operatingAccount.getAddress();
+    operatingAccountGlobal.address = operatingAddress;
+
     await updateAccountBalance(operatingAddress);
 
     return operatingAccount;
@@ -959,7 +970,7 @@ const updateExternalPrices = async () => {
 const run = async () => {
     await sendMessage('LIQUIDATOR', 'starting...');
 
-    let operatingAccount = await loadOperatingAccount();
+    let operatingAccount = await getOperatingAccount();
 
     let liquidator = await getLiquidator(operatingAccount);
 
