@@ -63,6 +63,8 @@ let gasPriceGlobal = undefined;
 
 let isLiveGlobal = false;
 
+let isDoneGlobal = false;
+
 // Start code
 
 const liquidationRecords = [];
@@ -138,6 +140,13 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 	return;
     }
 
+    if (isDoneGlobal) {
+        console.log('Liquidation already sent');
+        return;
+    } else {
+        isDoneGlobal = true;
+    }
+
     try {
 	let liquidateMethod = isLiveGlobal ? 
 	    liquidatorWrapperContractGlobal.liquidate 
@@ -157,9 +166,9 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 	    }
 	);
 
-	console.log(`LIQUIDATED ACCOUNT ${account} - RESULT ${result}`);
+	console.log(`LIQUIDATED ACCOUNT ${account} - RESULT ${JSON.stringify(result)}`);
 
-	await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account}`);
+	await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account} - ${JSON.stringify(result)}`);
     } catch (err) {
         console.log(`FAILED TO LIQUIDATE ACCOUNT ${account} - ERROR ${err}`);
 
@@ -349,6 +358,7 @@ const doLiquidation = () => {
 	    }
 	}
 
+        let coinbaseSymbols = coinbaseEntries.map(({symbol}) => symbol);
         console.log(`Posting prices for: ${JSON.stringify(coinbaseSymbols)}`);
 
 	// underlying balance
@@ -409,7 +419,6 @@ const doLiquidation = () => {
                 coinbaseEntries,
                 profit
             });
-
         }
 
         // End of account
@@ -869,7 +878,7 @@ const getLiquidatorWrapper = async (operatingAccount) => {
     let operatingAddress = await operatingAccount.getAddress();
     assert(await liquidatorWrapperContractGlobal.owner() == operatingAddress);
 
-    console.log(`LIQUIDATOR DEPLOYED @ ${liquidatorWrapperContractGlobal.address}`);
+    console.log(`LIQUIDATOR WRAPPER DEPLOYED @ ${liquidatorWrapperContractGlobal.address}`);
 
     return liquidatorWrapperContractGlobal;
 }
