@@ -45,7 +45,7 @@ const ETHERSCAN_API_KEY = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
 const COINBASE_API_KEY = '9437bb42b52baeec3407dbe344e80f84';
 
 const COINBASE_SECRET = process.env.COINBASE_SECRET;
-assert(COINBASE_SECRET !== null);
+assert(COINBASE_SECRET !== null && COINBASE_SECRET !== undefined);
 
 let CLOSE_FACTOR_MANTISSA = undefined;
 let LIQUIDATION_INCENTIVE_MANTISSA = undefined;
@@ -79,7 +79,7 @@ const doShutdown = () => {
 const sendMessage = async (subject, message) => {
     console.log(`SENDING MESSAGE: ${message}`);
 
-    if (!isLiveGlobal) {
+    if (!process.env.PUBLISH_MESSAGES) {
         return; // dont send a message in dev
     }
 
