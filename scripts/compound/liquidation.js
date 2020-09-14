@@ -60,6 +60,7 @@ let operatingAccountBalanceGlobal = undefined;
 let marketsGlobal = {};
 let coinbasePricesGlobal = {};
 let accountsGlobal = {};
+let uniswapPairsGlobal = {};
 
 let gasPriceGlobal = undefined;
 let requiresAccountBalanceUpdateGlobal = false;
@@ -179,12 +180,11 @@ const getUniswapPair = async (borrowMarketUnderlyingAddress, collateralMarketUnd
         }
     }
 
-    let pairAddress = await uniswapFactoryContractGlobal.getPair(
-        borrowMarketUnderlyingAddress,
-        collateralMarketUnderlyingAddress
-    );
-
-    return await ethers.getContractAt('IUniswapV2Pair', pairAddress);
+    try {
+        return uniswapPairsGlobal.borrowMarketUnderlyingAddress.collateralMarketUnderlyingAddress;
+    } catch (err) {
+        return constants.ZERO_ADDRESS;
+    }
 };
 
 const doLiquidation = () => {
@@ -953,6 +953,35 @@ const getOperatingAccount = async () => {
     return operatingAccount;
 };
 
+const loadUniswapPairs = async (tokens) => {
+    for (let t1 of tokens) {
+        for (let t2 of tokens) {
+            if (t1 === t2) {
+                if (t1 === WETH_ADDRESS) {
+                    t2 = DAI_ADDRESS; // not supported anyway
+                } else {
+                    t2 = WETH_ADDRESS;
+                }
+            }
+
+            let pairAddress = await uniswapFactoryContractGlobal.getPair(t1, t2);
+
+            let contract = await ethers.getContractAt('IUniswapV2Pair', pairAddress);
+
+            if (!(t1 in uniswapPairsGlobal)) {
+                uniswapPairsGlobal.t1 = {};
+            }
+
+            if (!(t2 in uniswapPairsGlobal)) {
+                uniswapPairsGlobal.t2 = {};
+            }
+
+            uniswapPairsGlobal.t1.t2 = contract;
+            uniswapPairsGlobal.t2.t1 = contract;
+        }
+    }
+};
+
 const updateAccountBalance = async (operatingAddress) => {
     let operatorBalance = await ethers.provider.getBalance(operatingAddress);
 
@@ -1147,6 +1176,8 @@ const run = async () => {
 
     // Load markets from start block
     let markets = await getMarkets(comptrollerContract, uniswapOracle, startBlock);
+
+    await loadUniswapPairs(Object.values(markets).map((market) => market._data.token.address));
 
     // Fetch accounts from REST service
     let accounts = await getAccounts(markets, startBlock);
