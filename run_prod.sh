@@ -1,4 +1,4 @@
-docker build -t liquidator
+docker build -t liquidator .
 docker run \
 	-d \
 	--restart=always \
