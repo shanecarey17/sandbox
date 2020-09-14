@@ -1,5 +1,5 @@
+usePlugin('@nomiclabs/buidler-ethers');
 usePlugin('@nomiclabs/buidler-ganache');
-usePlugin("@nomiclabs/buidler-waffle");
 usePlugin("buidler-deploy");
 
 const fs = require('fs');
