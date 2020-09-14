@@ -988,7 +988,6 @@ const updateExternalPrices = async () => {
             signatures = response.data.signatures;
         } catch (err) {
             console.log(constants.CONSOLE_RED, `FAILED TO FETCH COINBASE DIRECT PRICES, FALLING BACK TO COMPOUND API ${err}`);
-            console.log(err);
 
             // then try compound
             let response = await axios.get('https://prices.compound.finance');
