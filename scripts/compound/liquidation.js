@@ -1,4 +1,5 @@
 const process = require('process'); // eslint
+const crypto = require('crypto');
 
 require('console-stamp')(console);
 
@@ -41,6 +42,10 @@ const LIQUIDATE_GAS_ESTIMATE = ethers.BigNumber.from(2000000); // from ganache t
 const slackURL = 'https://hooks.slack.com/services/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';
 
 const ETHERSCAN_API_KEY = '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ';
+const COINBASE_API_KEY = '9437bb42b52baeec3407dbe344e80f84';
+
+const COINBASE_SECRET = process.env.COINBASE_SECRET;
+assert(COINBASE_SECRET !== null);
 
 let CLOSE_FACTOR_MANTISSA = undefined;
 let LIQUIDATION_INCENTIVE_MANTISSA = undefined;
@@ -435,6 +440,7 @@ const doLiquidation = () => {
 };
 
 const normalizeRawPrice = rawPrice => rawPrice.mul(constants.TEN.pow(30)).div(constants.TEN.pow(18));
+
 const onPriceUpdated = (symbol, price, markets) => {
     if (symbol === 'BTC') {
         symbol = 'WBTC';
@@ -961,32 +967,75 @@ const updateAccountBalance = async (operatingAddress) => {
 };
 
 const updateExternalPrices = async () => {
-    try {
-        let response = await axios.get('https://prices.compound.finance');
-        let {coinbase} = response.data;
-        console.log(`FETCHED COINBASE PRICES: ${JSON.stringify(coinbase.prices)}`);
+    let messages = [];
+    let signatures = [];
 
-        const updatedCoinbasePrices = {};
-        for(let i = 0; i < coinbase.messages.length; i++) {
-            let [kind, timestamp, symbol, price] = ethers.utils.defaultAbiCoder.decode(['string', 'uint64', 'string', 'uint64'], coinbase.messages[i]);
-            let normalizedSymbol = symbol === 'BTC' ? 'WBTC' : symbol;
-            updatedCoinbasePrices[normalizedSymbol] = {
-                message: coinbase.messages[i],
-                signature: coinbase.signatures[i],
+    try {
+        try {
+            // First try coinbase
+            let timestamp = String(Math.floor(+new Date() / 1000)); // UNIX epoch time
+            let message = timestamp + 'GET' + '/oracle'; 
+            let signature = crypto.createHmac('sha256', COINBASE_SECRET).update(message).digest('hex');
+            let response = await axios.get('https://api.pro.coinbase.com/oracle', {
+                headers: {
+                    'CB-ACCESS-SIGN': signature,
+                    'CB-ACCESS-TIMESTAMP': timestamp,
+                    'CB-ACCESS-KEY': COINBASE_API_KEY
+                }
+            });
+
+            messages = response.data.messages;
+            signatures = response.data.signatures;
+        } catch (err) {
+            console.log(constants.CONSOLE_RED, 'FAILED TO FETCH COINBASE DIRECT PRICES, FALLING BACK TO COMPOUND API');
+            console.log(err);
+
+            // then try compound
+            let response = await axios.get('https://prices.compound.finance');
+            let {coinbase} = response.data;
+
+            messages = coinbase.messages;
+            signatures = coinbase.signatures;
+        }
+    } catch (err) {
+        console.log(constants.CONSOLE_RED, 'FAILED TO FETCH EXTERNAL PRICES');
+        console.log(err);
+    }
+
+    if (messages.length > 0) {
+        assert(messages.length === signatures.length);
+
+        const messageAbi = ['string', 'uint64', 'string', 'uint64'];
+
+        for (let i = 0; i < messages.length; i++) {
+            let [kind, timestamp, symbol, price] = ethers.utils.defaultAbiCoder.decode(messageAbi, messages[i]);
+
+            let normalizedSymbol = (symbol === 'BTC') ? 'WBTC' : symbol;
+            let normalizedPrice = normalizeRawPrice(price);
+
+            if (normalizedSymbol in coinbasePricesGlobal && coinbasePricesGlobal[normalizedSymbol].timestamp.gt(timestamp)) {
+                // Do not take an older price
+                continue;
+            }
+
+            if (!(normalizedSymbol in coinbasePricesGlobal) || !(coinbasePricesGlobal[normalizedSymbol].rawPrice.eq(price))) {
+                // Log only when price is updated
+                console.log(`UPDATING COINBASE PRICE ${normalizedSymbol} ${ethers.utils.formatEther(normalizedPrice)}`);
+            }
+
+            coinbasePricesGlobal[normalizedSymbol] = {
+                message: messages[i],
+                signature: signatures[i],
                 rawSymbol: symbol,
                 normalizedSymbol,
                 rawPrice: price, // this is the raw price, same as what comes thru on onPriceUpdate
-                normalizedPrice: normalizeRawPrice(price),
+                normalizedPrice,
                 timestamp,
             };
         }
-
-        coinbasePricesGlobal = updatedCoinbasePrices;
-    } catch (err) {
-        console.log(constants.CONSOLE_RED, 'FAILED TO FETCH EXTERNAL PRICES');
     }
     
-    let task = new Promise(resolve => setTimeout(resolve, 10 * 1000));
+    let task = new Promise(resolve => setTimeout(resolve, 3 * 1000));
     task.then(() => updateExternalPrices());
 };
 

@@ -1,4 +1,6 @@
 .secret
+.coinbase_secret.txt
+.mainnet.key
 package-lock.json
 artifacts/
 cache/
