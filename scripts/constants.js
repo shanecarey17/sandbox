@@ -8,6 +8,7 @@ module.exports = {
     DISPLAY_PADDING: 14,
 
     // https://stackoverflow.com/questions/9781218/how-to-change-node-jss-console-font-color
+    CONSOLE_DEFAULT: '%s',
     CONSOLE_RED: '\x1b[31m%s\x1b[0m',
     CONSOLE_GREEN: '\x1b[32m%s\x1b[0m',
 
