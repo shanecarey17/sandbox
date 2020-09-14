@@ -98,7 +98,13 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
     // Check uniswap pair liquidity
     const uniswapBorrowTokenAddress = borrowedMarket.underlyingToken.address === ethToken.address ? WETH_ADDRESS : borrowedMarket.underlyingToken.address;
     const uniswapCollateralTokenAddress = collateralMarket.underlyingToken.address === ethToken.address ? WETH_ADDRESS : collateralMarket.underlyingToken.address;
+
     const uniswapPair = await getUniswapPair(uniswapBorrowTokenAddress, uniswapCollateralTokenAddress);
+    if (uniswapPair === constants.ZERO_ADDRESS) {
+        console.log(constants.CONSOLE_RED, `CANNOT LIQUIDATE ACCOUNT ${account} - NO UNISWAP PAIR`);
+        return;
+    }
+
     const [reserve0, reserve1, ts] = await uniswapPair.getReserves();
     const token0 = await uniswapPair.token0();
 
