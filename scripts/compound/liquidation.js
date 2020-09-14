@@ -441,12 +441,12 @@ const doLiquidation = () => {
 
 const normalizeRawPrice = rawPrice => rawPrice.mul(constants.TEN.pow(30)).div(constants.TEN.pow(18));
 
-const onPriceUpdated = (symbol, price, markets) => {
+const onPriceUpdated = (symbol, price) => {
     if (symbol === 'BTC') {
         symbol = 'WBTC';
     }
 
-    for (let market of Object.values(markets)) {
+    for (let market of Object.values(marketsGlobal)) {
         if (market._data.underlyingToken.symbol === symbol) {
             // need to transform the price we receive to mirror
             // https://github.com/compound-finance/open-oracle/blob/master/contracts/Uniswap/UniswapAnchoredView.sol#L135
@@ -1090,7 +1090,7 @@ const queryEvents = async (comptrollerContract, uniswapOracle, lastBlock, blockN
             }
         } else if (ev.address === uniswapOracle.address) {
             if (ev['event'] === 'PriceUpdated') {
-                onPriceUpdated(ev.args.symbol, ev.args.price, markets);                
+                onPriceUpdated(ev.args.symbol, ev.args.price);                
             }
         } else {
             let eventHandler = marketsGlobal[ev.address]._data['on' + ev['event']];
