@@ -987,7 +987,7 @@ const updateExternalPrices = async () => {
             messages = response.data.messages;
             signatures = response.data.signatures;
         } catch (err) {
-            console.log(constants.CONSOLE_RED, 'FAILED TO FETCH COINBASE DIRECT PRICES, FALLING BACK TO COMPOUND API');
+            console.log(constants.CONSOLE_RED, `FAILED TO FETCH COINBASE DIRECT PRICES, FALLING BACK TO COMPOUND API ${err}`);
             console.log(err);
 
             // then try compound
@@ -998,10 +998,10 @@ const updateExternalPrices = async () => {
             signatures = coinbase.signatures;
         }
     } catch (err) {
-        console.log(constants.CONSOLE_RED, 'FAILED TO FETCH EXTERNAL PRICES');
-        console.log(err);
+        console.log(constants.CONSOLE_RED, `FAILED TO FETCH EXTERNAL PRICES ${err}`);
     }
 
+    let anyPricesUpdated = false;
     if (messages.length > 0) {
         assert(messages.length === signatures.length);
 
@@ -1021,6 +1021,7 @@ const updateExternalPrices = async () => {
             if (!(normalizedSymbol in coinbasePricesGlobal) || !(coinbasePricesGlobal[normalizedSymbol].rawPrice.eq(price))) {
                 // Log only when price is updated
                 console.log(`UPDATING COINBASE PRICE ${normalizedSymbol} ${ethers.utils.formatEther(normalizedPrice)}`);
+                anyPricesUpdated = true;
             }
 
             coinbasePricesGlobal[normalizedSymbol] = {
@@ -1033,10 +1034,78 @@ const updateExternalPrices = async () => {
                 timestamp,
             };
         }
+
+    }
+
+    if (anyPricesUpdated) {
+        doLiquidation();
+    } else {
+        console.log('NO PRICE UPDATES');
     }
     
     let task = new Promise(resolve => setTimeout(resolve, 3 * 1000));
     task.then(() => updateExternalPrices());
+};
+
+const queryEvents = async (comptrollerContract, uniswapOracle, lastBlock, blockNumber) => {
+    // collect provider tasks
+    let tasks = [];
+
+    for (let market of Object.values(marketsGlobal)) {
+        let task = market.queryFilter('*', lastBlock + 1, blockNumber);
+        tasks.push(task);
+    }
+
+    let oracleEventTask = uniswapOracle.queryFilter('*', lastBlock + 1, blockNumber);
+    tasks.push(oracleEventTask);
+
+    let comptrollerEventTask = comptrollerContract.queryFilter('*', lastBlock + 1, blockNumber);
+    tasks.push(comptrollerEventTask);
+
+    // wait for all tasks to finish and sort in chain order
+    let allEvents = await Promise.all(tasks);
+    allEvents = allEvents.flat(1);
+    allEvents = allEvents.sort((a, b) => {
+        // sort by blocknumber then logindex
+        if (a.blockNumber === b.blockNumber) {
+            return a.logIndex - b.logIndex;
+        }
+
+        return a.blockNumber - b.blockNumber;
+    });
+
+    // apply events in order to state`
+    for (let ev of allEvents) {
+        if (!('event' in ev)) {
+            // possible issue with the events abi
+            throw new Error(`unhandled event ${JSON.stringify(ev)}`);
+        }
+
+        console.log(`EVENT tx ${ev.transactionHash} block ${ev.blockNumber} logIdx ${ev.logIndex} address ${ev.address} topics ${ev.topics}`);
+
+        if (ev.address === comptrollerContract.address) {
+            if (ev['event'] === 'MarketEntered') {
+                onMarketEntered(ev.args);
+            } else if (ev['event'] === 'MarketExited') {
+                onMarketExited(ev.args);
+            }
+        } else if (ev.address === uniswapOracle.address) {
+            if (ev['event'] === 'PriceUpdated') {
+                onPriceUpdated(ev.args.symbol, ev.args.price, markets);                
+            }
+        } else {
+            let eventHandler = marketsGlobal[ev.address]._data['on' + ev['event']];
+
+            try {
+                eventHandler(ev.args);
+            } catch (err) {
+                console.log(ev);
+                throw err;
+            }
+        }
+    }
+
+    return allEvents.length;
 };
 
 const run = async () => {
@@ -1052,15 +1121,13 @@ const run = async () => {
 
     await updateGasPrice();
 
-    await updateExternalPrices();
-
-    console.log('READY LITTYQUIDATOR 1');
-
     let comptrollerContract = await getComptroller();
 
     let uniswapOracle = await getUniswapOracle();
 
     await getUniswapFactory();
+
+    console.log('READY LITTYQUIDATOR 1');
 
     // Start from some blocks back
     let blockNumber = await ethers.provider.getBlockNumber();
@@ -1075,82 +1142,39 @@ const run = async () => {
     // Fetch accounts from REST service
     let accounts = await getAccounts(markets, startBlock);
 
+    console.log('INITIALIZED');
+
+    sendMessage('INITIALIZED', 'liquidator initialized');
+
     let lastBlock = startBlock;
 
+    let isPollingExternalPrices = false;
     while (!shutdownRequestedGlobal) {
         // fetch the latest block
         let blockNumber = await ethers.provider.getBlockNumber();
 
         if (blockNumber === lastBlock) {
-            console.log('NO NEW BLOCK');
-            await new Promise( resolve => setTimeout( resolve, 5 * 1000 ) );
+            console.log('NO NEW BLOCKS');
+            await new Promise(resolve => setTimeout(resolve, 3 * 1000));
             continue;
         }
 
         console.log(`UPDATING FOR BLOCKS [${lastBlock + 1} - ${blockNumber}]`);
 
-        // collect provider tasks
-        let tasks = [];
-
-        for (let market of Object.values(markets)) {
-            let task = market.queryFilter('*', lastBlock + 1, blockNumber);
-            tasks.push(task);
-        }
-
-        let oracleEventTask = uniswapOracle.queryFilter('*', lastBlock + 1, blockNumber);
-        tasks.push(oracleEventTask);
-
-        let comptrollerEventTask = comptrollerContract.queryFilter('*', lastBlock + 1, blockNumber);
-        tasks.push(comptrollerEventTask);
-
-        // wait for all tasks to finish and sort in chain order
-        let allEvents = await Promise.all(tasks);
-        allEvents = allEvents.flat(1);
-        allEvents = allEvents.sort((a, b) => {
-            // sort by blocknumber then logindex
-            if (a.blockNumber === b.blockNumber) {
-                return a.logIndex - b.logIndex;
-            }
-
-            return a.blockNumber - b.blockNumber;
-        });
-
-        // apply events in order to state`
-        for (let ev of allEvents) {
-            if (!('event' in ev)) {
-                // possible issue with the events abi
-                throw new Error(`unhandled event ${JSON.stringify(ev)}`);
-            }
-
-            console.log(`EVENT tx ${ev.transactionHash} block ${ev.blockNumber} logIdx ${ev.logIndex} address ${ev.address} topics ${ev.topics}`);
-
-            if (ev.address === comptrollerContract.address) {
-                if (ev['event'] === 'MarketEntered') {
-                    onMarketEntered(ev.args);
-                } else if (ev['event'] === 'MarketExited') {
-                    onMarketExited(ev.args);
-                }
-            } else if (ev.address === uniswapOracle.address) {
-                if (ev['event'] === 'PriceUpdated') {
-                    onPriceUpdated(ev.args.symbol, ev.args.price, markets);                
-                }
-            } else {
-                let eventHandler = markets[ev.address]._data['on' + ev['event']];
-
-                try {
-                    eventHandler(ev.args);
-                } catch (err) {
-                    console.log(ev);
-                    throw err;
-                }
-            }
-        }
+        let numEvents = await queryEvents(comptrollerContract, uniswapOracle, lastBlock, blockNumber);
 
         // update last block
         lastBlock = blockNumber;
 
+        // Begin loading external prices
+        // May trigger liquidation, do not begin until state is at chain head
+        if (!isPollingExternalPrices) {
+            updateExternalPrices();
+            isPollingExternalPrices = true;
+        }
+
         // dont spam the log if no events
-        if (allEvents.length == 0) {
+        if (numEvents == 0) {
             console.log('NO EVENTS');
             continue;
         }
