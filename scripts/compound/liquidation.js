@@ -474,6 +474,10 @@ const onMarketEntered = ({cToken, account}) => {
         return;
     }
 
+    if (cToken in accountsGlobal[account]) {
+        return; // Membership not required to mint cTokens, don't overwrite
+    }
+
     accountsGlobal[account][cToken] = {
         marketAddress: cToken,
         tokens: constants.ZERO,
