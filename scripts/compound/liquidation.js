@@ -181,7 +181,7 @@ const getUniswapPair = async (borrowMarketUnderlyingAddress, collateralMarketUnd
     }
 
     try {
-        return uniswapPairsGlobal.borrowMarketUnderlyingAddress.collateralMarketUnderlyingAddress;
+        return uniswapPairsGlobal[borrowMarketUnderlyingAddress][collateralMarketUnderlyingAddress];
     } catch (err) {
         return undefined;
     }
@@ -904,6 +904,7 @@ const getLiquidatorWrapper = async (operatingAccount) => {
 
 const getUniswapFactory = async () => {
     uniswapFactoryContractGlobal = await ethers.getContractAt('IUniswapV2Factory', UNISWAP_FACTORY_ADDRESS);
+
     return uniswapFactoryContractGlobal;
 };
 
