@@ -19,6 +19,7 @@ module.exports = {
     KYBER_PRECISION: 18,
 
     ETH_ADDRESS: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+    ZERO_ADDRESS: '0x0000000000000000000000000000000000000000',
 
     STRATEGY_NAME: 'StrategyV1',
     ADDRESS_FILE_NAME: 'contracts.json',
