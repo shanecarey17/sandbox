@@ -107,9 +107,8 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
         return;
     }
 
-    const [reserve0, reserve1, ts] = await uniswapPair.reserves;
     const token0 = uniswapPair.token0;
-
+    const [reserve0, reserve1, ts] = uniswapPair.reserves;
     const reserveOut = uniswapBorrowTokenAddress === token0 ? reserve0 : reserve1;
     const reserveIn = uniswapBorrowTokenAddress === token0 ? reserve1 : reserve0;
 
@@ -954,6 +953,17 @@ const getOperatingAccount = async () => {
     return operatingAccount;
 };
 
+const updateUniswapPairs = async () => {
+    for (let pairs of Object.values(uniswapPairsGlobal)) {
+        for (let pair of Object.values(pairs)) {
+            pair.reserves = await pair.contract.getReserves();
+        }
+    }
+
+    let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
+    task.then(() => updateUniswapPairs());
+};
+
 const loadUniswapPairs = async (tokens) => {
     for (let i = 0; i < tokens.length; i++) {
         let t1 = tokens[i];
@@ -961,7 +971,14 @@ const loadUniswapPairs = async (tokens) => {
         for (let j = i + 1; j < tokens.length; j++) {
             let t2 = tokens[j];
 
-            let pairAddress = await uniswapFactoryContractGlobal.getPair(t1.address, t2.address);
+            let pairAddress = await uniswapFactoryContractGlobal.getPair(
+                t1.symbol === 'ETH' ? WETH_ADDRESS : t1.address, 
+                t2.symbol === 'ETH' ? WETH_ADDRESS : t2.address);
+
+            if (pairAddress === constants.ZERO_ADDRESS) {
+                console.log(`NO UNISWAP PAIR FOR ${t1.symbol} ${t2.symbol}`);
+                continue;
+            }
 
             let contract = await ethers.getContractAt('IUniswapV2Pair', pairAddress);
 
@@ -981,8 +998,13 @@ const loadUniswapPairs = async (tokens) => {
 
             uniswapPairsGlobal[t1.address][t2.address] = pairObject;
             uniswapPairsGlobal[t1.address][t2.address] = pairObject;
+
+            console.log(`UNISWAP PAIR ${t1.symbol} ${t2.symbol} ${pairObject.reserves}`);
         }
     }
+
+    let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
+    task.then(() => updateUniswapPairs());
 };
 
 const updateAccountBalance = async (operatingAddress) => {
