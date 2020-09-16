@@ -6,6 +6,7 @@ require('console-stamp')(console);
 const axios = require('axios');
 const assert = require('assert');
 const fs = require('fs');
+const web3 = require('web3');
 
 const bre = require('@nomiclabs/buidler');
 const {ethers, deployments} = bre;
@@ -51,6 +52,7 @@ let CLOSE_FACTOR_MANTISSA = undefined;
 let LIQUIDATION_INCENTIVE_MANTISSA = undefined;
 
 let comptrollerContractGlobal = undefined;
+let uniswapAnchoredViewContractGlobal = undefined
 let liquidatorContractGlobal = undefined;
 let liquidatorWrapperContractGlobal = undefined;
 let uniswapFactoryContractGlobal = undefined;
@@ -72,6 +74,10 @@ let isDoneGlobal = false;
 let shutdownRequestedGlobal = false;
 
 // Start code
+
+const sleep = (timeoutSeconds) => {
+    return new Promise(resolve => setTimeout(resolve, timeoutSeconds * 1000));
+};
 
 const doShutdown = () => {
     shutdownRequestedGlobal = true;
@@ -871,6 +877,8 @@ const getUniswapOracle = async () => {
 
     await uniswapAnchoredViewContract.deployed();
 
+    uniswapAnchoredViewContractGlobal = uniswapAnchoredViewContract;
+
     return uniswapAnchoredViewContract;
 };
 
@@ -936,8 +944,7 @@ const updateGasPrice = async () => {
             `Operator balance insuffucient for gas! bal. ${operatorBalanceFmt} < ${gasCostFmt} ETH (@ ${gasPriceFmt} gwei)`);
     }
 
-    let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
-    task.then(() => updateGasPrice());
+    sleep(30).then(() => updateGasPrice());
 };
 
 const getOperatingAccount = async () => {
@@ -961,8 +968,7 @@ const updateUniswapPairs = async () => {
         }
     }
 
-    let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
-    task.then(() => updateUniswapPairs());
+    sleep(30).then(() => updateUniswapPairs());
 };
 
 const loadUniswapPairs = async (tokens) => {
@@ -1004,8 +1010,7 @@ const loadUniswapPairs = async (tokens) => {
         }
     }
 
-    let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
-    task.then(() => updateUniswapPairs());
+    sleep(30).then(() => updateUniswapPairs());
 };
 
 const updateAccountBalance = async (operatingAddress) => {
@@ -1025,8 +1030,7 @@ const updateAccountBalance = async (operatingAddress) => {
 
     console.log(`OPERATING ACCOUNT ${operatingAddress} BALANCE ${balanceFmt}`);
 
-    let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
-    task.then(() => updateAccountBalance(operatingAddress));
+    sleep(30).then(() => updateAccountBalance(operatingAddress));
 
     return operatorBalance;
 };
@@ -1107,10 +1111,10 @@ const updateExternalPrices = async () => {
         console.log('NO PRICE UPDATES');
     }
     
-    let task = new Promise(resolve => setTimeout(resolve, 3 * 1000));
-    task.then(() => updateExternalPrices());
+    sleep(3).then(() => updateExternalPrices());
 };
 
+/*
 const queryEvents = async (comptrollerContract, uniswapOracle, lastBlock, blockNumber) => {
     // collect provider tasks
     let tasks = [];
@@ -1171,6 +1175,140 @@ const queryEvents = async (comptrollerContract, uniswapOracle, lastBlock, blockN
 
     return allEvents.length;
 };
+*/
+
+let logBlockNumber = undefined;
+let logIndex = undefined;
+
+const applyLog = (log) => {
+    console.log(log);
+
+    // Confirm we got the log in order (dev)
+    if (logBlockNumber !== undefined) {
+        assert(log.blockNumber >= logBlockNumber);
+        if (log.blockNumber === logBlockNumber) {
+            assert(log.logIndex > logIndex);
+        } else {
+            doLiquidation(); // TODO where should this go?
+        }
+    }
+
+    logBlockNumber = log.blockNumber;
+    logIndex = log.logIndex;
+
+    // Handle the event
+    let address = ethers.utils.getAddress(log.address); // TODO confirm case correct
+
+    console.log(`EVENT tx ${log.transactionHash} block ${log.blockNumber} logIdx ${log.logIndex} address ${address} topic ${log.topics[0]}`);
+
+    if (address === COMPTROLLER_ADDRESS) {
+        let ev = comptrollerContractGlobal.interface.parseLog(log);
+
+        if (ev.name === 'MarketEntered') {
+            onMarketEntered(ev.args);
+        } else if (ev.name === 'MarketExited') {
+            onMarketExited(ev.args);
+        }
+    } else if (address === UNISWAP_ANCHORED_VIEW_ADDRESS) {
+        let ev = uniswapAnchoredViewContractGlobal.interface.parseLog(log);
+
+        if (ev.name === 'PriceUpdated') {
+            onPriceUpdated(ev.args.symbol, ev.args.price);                
+        }
+    } else {
+        let marketContract = marketsGlobal[address];
+
+        let ev = marketContract.interface.parseLog(log);
+
+        let eventHandler = marketContract._data['on' + ev.name];
+
+        try {
+            eventHandler(ev.args);
+        } catch (err) {
+            console.log(ev);
+            throw err;
+        }
+    }
+};
+
+const getWebSocketProvider = (startBlock, addresses) => {
+    const apiKey = process.env.INFURA_WS_KEY;
+    assert(apiKey !== undefined && apiKey !== null);
+
+    let w3 = new web3( 
+        new web3.providers.WebsocketProvider(`wss://mainnet.infura.io/ws/v3/${apiKey}`)
+    );
+
+    let syncStarted = false;
+    let isSynced = false;
+    let logQueue =[];
+    
+    let blockSubscription = w3.eth.subscribe('newBlockHeaders');
+
+    blockSubscription.on('data', (blockHeader) => {
+        console.log(`NEW BLOCK ${blockHeader.number}`);
+
+        if (!syncStarted) {
+            let syncOptions = {
+                fromBlock: startBlock,
+                toBlock: blockHeader.number - 1,
+                address: addresses
+            };
+
+            w3.eth.getPastLogs(syncOptions).then((pastLogs) => {
+                let pastLogsSorted = pastLogs.sort((a, b) => {
+                    if (a.blockNumber === b.blockNumber) {
+                        return a.logIndex - b.logIndex;
+                    }
+
+                    return a.blockNumber - b.blockNumber;
+                });
+
+                for (let log of pastLogsSorted) {
+                    applyLog(log);
+                }
+
+                for (let log of logQueue) {
+                    applyLog(log);
+                }
+
+                isSynced = true;
+
+                console.log('SYNCED');
+            });
+
+            syncStarted = true;
+        }
+    });
+
+    let options = {
+        address: addresses,
+    };
+
+    let subscription = w3.eth.subscribe('logs', options);
+
+    subscription.on('data', (log) => {
+        if (!isSynced) {
+            logQueue.push(log);
+        } else {
+           applyLog(log); 
+        }
+    });
+
+    subscription.on('changed', (logs) => {
+        console.log('changed');
+        console.log(logs);
+        throw new Error('not implemented');
+    });
+
+    subscription.on('error', (err) => {
+        console.log('error');
+        console.log(err);
+        throw new Error(err);
+    });
+
+    return w3;
+};
 
 const run = async () => {
     await sendMessage('LIQUIDATOR', 'starting...');
@@ -1208,10 +1346,18 @@ const run = async () => {
     // Fetch accounts from REST service
     let accounts = await getAccounts(markets, startBlock);
 
+    // Get websocket provider
+    let subAddresses = Object.values(markets).map((market) => market.address);
+    subAddresses.push(comptrollerContract.address);
+    subAddresses.push(uniswapOracle.address); 
+
+    let webSocketProvider = getWebSocketProvider(startBlock + 1, subAddresses);
+
     console.log('INITIALIZED');
 
     sendMessage('INITIALIZED', 'liquidator initialized');
 
+/*
     let lastBlock = startBlock;
 
     let isPollingExternalPrices = false;
@@ -1248,6 +1394,8 @@ const run = async () => {
         // try liquidation with updated state
         doLiquidation();
     }
+*/
+    await sleep(3600);
 
     console.log('EXITING');
 
@@ -1270,6 +1418,7 @@ module.exports = async (isLive) => {
     // Kill immediately on error
     process.on('unhandledRejection', async (err) => {
         console.error(`UNHANDLED REJECTION ${err}`);
+        console.log(err);
 
         await sendMessage('ERROR', `process exited - ${err}`);
 
