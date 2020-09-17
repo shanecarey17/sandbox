@@ -1239,6 +1239,15 @@ const getWebSocketProvider = (startBlock, addresses) => {
         new web3.providers.WebsocketProvider(`wss://mainnet.infura.io/ws/v3/${apiKey}`)
     );
 
+    // Subscribe to block headers and logs for 
+    // contract addresses. After first block is received,
+    // request all logs in range [startBlock, newBlock - 1]
+    // and set isSyncing to true. Until the request is
+    // fulfilled, queue incoming log messages. Once the
+    // request has succeeded: apply, in order, the historical
+    // logs, then queued logs, then set isSynced to true so that
+    // further log messages are applied directly.
+
     let syncStarted = false;
     let isSynced = false;
     let logQueue =[];
