@@ -162,6 +162,7 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
         await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account} - ${JSON.stringify(result)}`);
     } catch (err) {
         console.log(`FAILED TO LIQUIDATE ACCOUNT ${account} - ERROR ${err}`);
+	console.log(err);
 
         await sendMessage('LIQUIDATION', `FAILED TO LIQUIDATE ACCOUNT ${account} ${err}`);
     } 
@@ -171,7 +172,7 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
 };
 
 // TODO add caching
-const getUniswapPair = async (borrowMarketUnderlyingAddress, collateralMarketUnderlyingAddress) => {
+const getUniswapPair = (borrowMarketUnderlyingAddress, collateralMarketUnderlyingAddress) => {
     if (borrowMarketUnderlyingAddress === collateralMarketUnderlyingAddress) {
         if (borrowMarketUnderlyingAddress === WETH_ADDRESS) {
             collateralMarketUnderlyingAddress = DAI_ADDRESS; // not supported anyway
@@ -439,6 +440,10 @@ const doLiquidation = () => {
         topCandidate.coinbaseEntries
     ).then(() => {
         // noop
+    }).catch((err) => {
+        console.log(constants.CONSOLE_RED, 'FAILED TO LIQUIDATE');
+	console.log(err);
+        process.exit();
     });
 
     // TODO mark account as liquidated to avoid double tap
@@ -987,7 +992,7 @@ const loadUniswapPairs = async (tokens) => {
                 uniswapPairsGlobal[t1.address] = {};
             }
 
-            if (!(t2 in uniswapPairsGlobal)) {
+            if (!(t2.address in uniswapPairsGlobal)) {
                 uniswapPairsGlobal[t2.address] = {};
             }
 
@@ -998,7 +1003,7 @@ const loadUniswapPairs = async (tokens) => {
             };
 
             uniswapPairsGlobal[t1.address][t2.address] = pairObject;
-            uniswapPairsGlobal[t1.address][t2.address] = pairObject;
+            uniswapPairsGlobal[t2.address][t1.address] = pairObject;
 
             console.log(`UNISWAP PAIR ${t1.symbol} ${t2.symbol} ${pairObject.reserves}`);
         }
@@ -1270,6 +1275,7 @@ module.exports = async (isLive) => {
     // Kill immediately on error
     process.on('unhandledRejection', async (err) => {
         console.error(`UNHANDLED REJECTION ${err}`);
+	console.log(err);
 
         await sendMessage('ERROR', `process exited - ${err}`);
 
@@ -1280,6 +1286,7 @@ module.exports = async (isLive) => {
         await run();
     } catch (err) {
         console.error(`EXCEPTION ${err}`);
+	console.log(err);
 
         await sendMessage('ERROR', `process exited - ${err}`);
         
