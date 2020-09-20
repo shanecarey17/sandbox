@@ -4,4 +4,5 @@ WORKDIR /app
 ADD package.json /app
 RUN npm install --only=production
 ADD . /app/
+RUN mkdir var
 CMD npx buidler runLiquidator --network mainnet
