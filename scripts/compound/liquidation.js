@@ -973,13 +973,13 @@ const updateUniswapPairs = async () => {
 const loadUniswapPairs = async (tokens) => {
     for (let i = 0; i < tokens.length; i++) {
         let t1 = tokens[i];
+        let t1Address = t1.symbol === 'ETH' ? WETH_ADDRESS : t1.address;
 
         for (let j = i + 1; j < tokens.length; j++) {
             let t2 = tokens[j];
+            let t2Address = t2.symbol === 'ETH' ? WETH_ADDRESS : t2.address;
 
-            let pairAddress = await uniswapFactoryContractGlobal.getPair(
-                t1.symbol === 'ETH' ? WETH_ADDRESS : t1.address, 
-                t2.symbol === 'ETH' ? WETH_ADDRESS : t2.address);
+            let pairAddress = await uniswapFactoryContractGlobal.getPair(t1Address, t2Address);
 
             if (pairAddress === constants.ZERO_ADDRESS) {
                 console.log(`NO UNISWAP PAIR FOR ${t1.symbol} ${t2.symbol}`);
@@ -988,12 +988,12 @@ const loadUniswapPairs = async (tokens) => {
 
             let contract = await ethers.getContractAt('IUniswapV2Pair', pairAddress);
 
-            if (!(t1.address in uniswapPairsGlobal)) {
-                uniswapPairsGlobal[t1.address] = {};
+            if (!(t1Address in uniswapPairsGlobal)) {
+                uniswapPairsGlobal[t1Address] = {};
             }
 
-            if (!(t2.address in uniswapPairsGlobal)) {
-                uniswapPairsGlobal[t2.address] = {};
+            if (!(t2Address in uniswapPairsGlobal)) {
+                uniswapPairsGlobal[t2Address] = {};
             }
 
             let pairObject = {
@@ -1002,8 +1002,8 @@ const loadUniswapPairs = async (tokens) => {
                 reserves: await contract.getReserves()
             };
 
-            uniswapPairsGlobal[t1.address][t2.address] = pairObject;
-            uniswapPairsGlobal[t2.address][t1.address] = pairObject;
+            uniswapPairsGlobal[t1Address][t2Address] = pairObject;
+            uniswapPairsGlobal[t2Address][t1Address] = pairObject;
 
             console.log(`UNISWAP PAIR ${t1.symbol} ${t2.symbol} ${pairObject.reserves}`);
         }
