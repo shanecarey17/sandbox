@@ -134,7 +134,7 @@ const checkUniswapLiquidity = (borrowedMarket, collateralMarket, repayBorrowAmou
     return true;
 };
 
-const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, coinbaseEntries) => {
+const liquidateAccount = (account, borrowedMarket, collateralMarket, repayBorrowAmount, coinbaseEntries) => {
     if (isDoneGlobal) {
         console.log('Liquidation already sent');
         return;
@@ -142,37 +142,35 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
         isDoneGlobal = true;
     }
 
-    try {
-        let liquidateMethod = isLiveGlobal ? 
-            liquidatorWrapperContractGlobal.liquidate 
-            : liquidatorWrapperContractGlobal.callStatic.liquidate; // callStatic = dry run
+    let liquidateMethod = isLiveGlobal ? 
+        liquidatorWrapperContractGlobal.liquidate 
+        : liquidatorWrapperContractGlobal.callStatic.liquidate; // callStatic = dry run
 
-        let result = await liquidateMethod(
-            account,
-            borrowedMarket.address,
-            collateralMarket.address,
-            repayBorrowAmount,
-            coinbaseEntries.map(({message}) => message),
-            coinbaseEntries.map(({signature}) => signature),
-            coinbaseEntries.map(({symbol}) => symbol),
-            {
-                gasPrice: gasPriceGlobal,
-                gasLimit: LIQUIDATE_GAS_ESTIMATE,
-            }
-        );
-
+    liquidateMethod(
+        account,
+        borrowedMarket.address,
+        collateralMarket.address,
+        repayBorrowAmount,
+        coinbaseEntries.map(({message}) => message),
+        coinbaseEntries.map(({signature}) => signature),
+        coinbaseEntries.map(({symbol}) => symbol),
+        {
+            gasPrice: gasPriceGlobal,
+            gasLimit: LIQUIDATE_GAS_ESTIMATE,
+        }
+    ).then(async (result) => {
         console.log(`LIQUIDATED ACCOUNT ${account} - RESULT ${JSON.stringify(result)}`);
 
         await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account} - ${JSON.stringify(result)}`);
-    } catch (err) {
+    }).catch(async (err) => {
         console.log(`FAILED TO LIQUIDATE ACCOUNT ${account} - ERROR ${err}`);
         console.log(err);
 
         await sendMessage('LIQUIDATION', `FAILED TO LIQUIDATE ACCOUNT ${account} ${err}`);
-    } 
-
-    // Shut down the app after attempt
-    doShutdown();
+    }).finally(() => {
+        // Shut down the app after attempt
+        doShutdown();
+    });
 };
 
 // TODO add caching
