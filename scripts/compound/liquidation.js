@@ -1177,7 +1177,7 @@ const queryEvents = async (comptrollerContract, uniswapOracle, lastBlock, blockN
 };
 
 const run = async () => {
-    await sendMessage('LIQUIDATOR', 'starting...');
+    await sendMessage('LIQUIDATOR', 'STARTING - LIVE=${isLiveGlobal}');
 
     let operatingAccount = await getOperatingAccount();
 
