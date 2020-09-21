@@ -398,7 +398,7 @@ const doLiquidation = () => {
         console.log(profitColor, `++ PROFIT ${ethToken.formatAmount(profit)} USD`);
 
         // Check uniswap for flash loan availability/liquidity
-        if (!checkUniswapLiquidity(maxBorrowedEthMarket, maxSuppliedEthMarket, repayAmount, seizeAmount)) {
+        if (!checkUniswapLiquidity(borrowedMarketData, suppliedMarketData, repayAmount, seizeAmount)) {
             continue;
         }
 
