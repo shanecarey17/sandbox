@@ -662,7 +662,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                 }
             };
 
-            this.onLiquidateBorrow = ({liquidator, borrower, repayAmount, cTokenCollateral, seizeTokens}) => {
+            this.onLiquidateBorrow = ({liquidator, borrower, repayAmount, cTokenCollateral, seizeTokens}, ev) => {
                 // Another account liquidated the borrowing account by repaying repayAmount and seizing seizeTokens of cTokenCollateral
                 // There is an associated Transfer event
                 let operatorLiquidated = liquidator === operatingAccountGlobal.address;
@@ -685,7 +685,8 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
 
                 sendMessage('LIQUIDATE_OBSERVED', `liquidation 
                     ${oursFmt} liquidator ${liquidator} borrower ${borrower} 
-                    ${repayAmountFmt} ${this.underlyingToken.symbol} => ${seizeTokensFmt} ${collateralData.token.symbol}`);
+                    ${repayAmountFmt} ${this.underlyingToken.symbol} => ${seizeTokensFmt} ${collateralData.token.symbol}
+                    tx http://etherscan.io/tx/${ev.transactionHash}`);
             };
 
             this.onTransfer = ({from, to, amount}) => {
@@ -1164,7 +1165,7 @@ const queryEvents = async (comptrollerContract, uniswapOracle, lastBlock, blockN
             let eventHandler = marketsGlobal[ev.address]._data['on' + ev['event']];
 
             try {
-                eventHandler(ev.args);
+                eventHandler(ev.args, ev);
             } catch (err) {
                 console.log(ev);
                 throw err;
