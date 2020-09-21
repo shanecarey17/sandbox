@@ -683,9 +683,12 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
                     borrowerData.borrows = borrowerData.borrows.sub(repayAmount);
                 }
 
+                let seizeAmount = seizeTokens.mul(collateralData.getExchangeRate()).div(EXPONENT);
+                let seizeAmountFmt = collateralData.underlyingToken.formatAmount(seizeAmount);
+
                 sendMessage('LIQUIDATE_OBSERVED', `liquidation 
                     ${oursFmt} liquidator ${liquidator} borrower ${borrower} 
-                    ${repayAmountFmt} ${this.underlyingToken.symbol} => ${seizeTokensFmt} ${collateralData.token.symbol}
+                    ${repayAmountFmt} ${this.underlyingToken.symbol} => ${seizeAmountFmt} ${collateralData.underlyingToken.symbol}
                     tx http://etherscan.io/tx/${ev.transactionHash}`);
             };
 
