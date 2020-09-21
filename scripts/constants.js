@@ -39,4 +39,6 @@ module.exports = {
     LIQUIDATION_GAS_PRICE: '100', // in gwei
 
     LIQUIDATION_GAS_LIMIT: ethers.BigNumber.from(10**6),
+
+    ETHERSCAN_API_KEY: '53XIQJECGSXMH9JX5RE8RKC7SEK8A2XRGQ', 
 }

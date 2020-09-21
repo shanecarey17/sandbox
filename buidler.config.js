@@ -15,6 +15,13 @@ const INFURA_URLS = [
 ];
 
 const INFURA_URL = (() => {
+    // Set an override via env var
+    if (process.env.INFURA_PROJECT_KEY) {
+        let infuraUrl = `https://mainnet.infura.io/v3/${process.env.INFURA_PROJECT_KEY}`;
+        console.log(`USING INFURA ACCOUNT ${infuraUrl}`);
+        return infuraUrl;
+    }
+
     let infuraUrlIndex = 0;
 
     try {
@@ -88,6 +95,13 @@ task('runLiquidator', "run the liquidator application")
         const isLive = (process.env.LIQUIDATOR_LIVE != null);
 
         await liquidator(isLive);
+    });
+
+task('analyzeGas', 'run script to look at opps gas')
+    .setAction(async (args) => {
+        const script = require('./scripts/compound/analyze_gas.js');
+
+        await script();
     });
 
 module.exports = {
