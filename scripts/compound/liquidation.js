@@ -93,7 +93,7 @@ const sendMessage = async (subject, message) => {
     await axios.post(slackURL, JSON.stringify(data));
 };
 
-const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount, shortfallEth, repaySupplyWasLarger, coinbaseEntries) => {
+const checkUniswapLiquidity = (borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount) => {
     let ethToken = tokens.TokenFactory.getEthToken();
 
     // Check uniswap pair liquidity
@@ -103,8 +103,8 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
     const uniswapPair = getUniswapPair(uniswapBorrowTokenAddress, uniswapCollateralTokenAddress);
 
     if (uniswapPair === undefined) {
-        console.log(constants.CONSOLE_RED, `CANNOT LIQUIDATE ACCOUNT ${account} - NO UNISWAP PAIR`);
-        return;
+        console.log(constants.CONSOLE_RED, 'NO UNISWAP PAIR');
+        return false;
     }
 
     const token0 = uniswapPair.token0;
@@ -113,8 +113,8 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
     const reserveIn = uniswapBorrowTokenAddress === token0 ? reserve1 : reserve0;
 
     if (repayBorrowAmount.gte(reserveOut)) {
-        console.log(`Uniswap did not have enough reserves when liquidating account ${account}`);
-        return;
+        console.log('UNISWAP PAIR INSUFFICIENT RESERVES');
+        return false;
     }
 
     let amountIn;
@@ -127,10 +127,14 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
     }
 
     if (amountIn.gte(seizeAmount)) {
-        console.log(`Did not seize enough repay uniswap for account: ${account}`);
-        return;
+        console.log('UNISWAP PAYBACK EXCEEDS SEIZE AMOUNT');
+        return false;
     }
 
+    return true;
+};
+
+const liquidateAccount = async (account, borrowedMarket, collateralMarket, repayBorrowAmount, coinbaseEntries) => {
     if (isDoneGlobal) {
         console.log('Liquidation already sent');
         return;
@@ -162,7 +166,7 @@ const liquidateAccount = async (account, borrowedMarket, collateralMarket, repay
         await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account} - ${JSON.stringify(result)}`);
     } catch (err) {
         console.log(`FAILED TO LIQUIDATE ACCOUNT ${account} - ERROR ${err}`);
-	console.log(err);
+        console.log(err);
 
         await sendMessage('LIQUIDATION', `FAILED TO LIQUIDATE ACCOUNT ${account} ${err}`);
     } 
@@ -369,6 +373,8 @@ const doLiquidation = () => {
         // Since we are not accouting for interest, use 90% of the repay amount to avoid over-seizing
         repayAmount = repayAmount.mul(90).div(100);
 
+
+        // Calculate the seize amount
         let repayAmountEth = repayAmount.mul(priceBorrowed).div(constants.TEN.pow(borrowedMarketData.underlyingToken.decimals));
 
         let seizeAmountEth = repayAmountEth.mul(LIQUIDATION_INCENTIVE_MANTISSA).div(EXPONENT);
@@ -378,6 +384,7 @@ const doLiquidation = () => {
         let consoleLine = `++ LIQUIDATE ${borrowedMarketData.underlyingToken.formatAmount(repayAmount)} ${borrowedMarketData.underlyingToken.symbol} `;
         console.log(consoleLine + `=> SEIZE ${suppliedMarketData.underlyingToken.formatAmount(seizeAmount)} ${suppliedMarketData.underlyingToken.symbol}`);
 
+        // Profit before gas costs
         let revenue = seizeAmountEth.sub(repayAmountEth);
         console.log(`++ REVENUE  ${ethToken.formatAmount(revenue)} USD`);
 
@@ -391,6 +398,11 @@ const doLiquidation = () => {
         let profit = revenue.sub(liquidationGasCostUSD);
         let profitColor = profit.gt(0) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
         console.log(profitColor, `++ PROFIT ${ethToken.formatAmount(profit)} USD`);
+
+        // Check uniswap for flash loan availability/liquidity
+        if (!checkUniswapLiquidity(maxBorrowedEthMarket, maxSuppliedEthMarket, repayAmount, seizeAmount)) {
+            continue;
+        }
 
         if (profit.gt(0)) {
             liquidationCandidates.push({
@@ -434,20 +446,8 @@ const doLiquidation = () => {
         topCandidate.borrowedMarketData,
         topCandidate.suppliedMarketData,
         topCandidate.repayAmount,
-        topCandidate.seizeAmount,
-        topCandidate.shortfallEth,
-        topCandidate.repaySupplyWasLarger,
         topCandidate.coinbaseEntries
-    ).then(() => {
-        // noop
-    }).catch((err) => {
-        console.log(constants.CONSOLE_RED, 'FAILED TO LIQUIDATE');
-	console.log(err);
-        process.exit();
-    });
-
-    // TODO mark account as liquidated to avoid double tap
-    // account.liquidated = true;
+    ); 
 };
 
 const normalizeRawPrice = rawPrice => rawPrice.mul(constants.TEN.pow(30)).div(constants.TEN.pow(18));
@@ -1275,7 +1275,7 @@ module.exports = async (isLive) => {
     // Kill immediately on error
     process.on('unhandledRejection', async (err) => {
         console.error(`UNHANDLED REJECTION ${err}`);
-	console.log(err);
+        console.log(err);
 
         await sendMessage('ERROR', `process exited - ${err}`);
 
@@ -1286,7 +1286,7 @@ module.exports = async (isLive) => {
         await run();
     } catch (err) {
         console.error(`EXCEPTION ${err}`);
-	console.log(err);
+        console.log(err);
 
         await sendMessage('ERROR', `process exited - ${err}`);
         
