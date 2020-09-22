@@ -1,6 +1,6 @@
 const axios = require('axios');
 const fs = require('fs');
-const obj2csv = require('obj2csv');
+const obj2csv = require('objects-to-csv');
 
 const bre = require('@nomiclabs/buidler');
 const {ethers} = bre;
@@ -60,27 +60,21 @@ module.exports = async () => {
         for (let log of logsResult.data.result) {
             let event = marketContract.interface.parseLog(log);
 
-            let gasCost = liqData.gasPrice.mul(liqData.gasUsed);
-            let estimatedRev = liqData.repayAmount.mul(5).div(100);
-            let estimatedEthRev = Number(liqData.token.formatAmount(estimatedRev)) * liqData.token.price / ethToken.price;
-            estimatedEthRev = ethers.utils.parseEther(String(estimatedEthRev).substring(0, 18));
-            let estimatedProfit = estimatedEthRev.sub(gasCost);
 
             let liqData = {
                 token,
                 blockNumber: ethers.BigNumber.from(log.blockNumber),
                 liquidator: event.args.liquidator,
                 borrowMarket: marketContract.address,
+                borrowSymbol: token.symbol,
                 collateralMarket: event.args.cTokenCollateral,
                 repayAmount: ethers.BigNumber.from(event.args.repayAmount),
                 seizeTokens: ethers.BigNumber.from(event.args.seizeTokens),
                 gasPrice: ethers.BigNumber.from(log.gasPrice),
                 gasUsed: ethers.BigNumber.from(log.gasUsed),
-                gasCost,
-                estimatedRev,
-                estimatedEthRev,
-                estimatedProfit,
+                tx: log.transactionHash,
             };
+
 
             allLiquidations.push(liqData);
         }
@@ -91,5 +85,33 @@ module.exports = async () => {
 
     allLiquidations.sort((a, b) => a.blockNumber.sub(b.blockNumber).gt(0) ? 1 : -1);
 
-    obj2csv
+    let liquidationsOutput = [];
+    for (let liqData of allLiquidations) {
+        let gasCost = liqData.gasPrice.mul(liqData.gasUsed);
+        let estimatedRev = liqData.repayAmount.mul(5).div(100);
+
+        let estimatedEthRevRaw = Number(liqData.token.formatAmount(estimatedRev)) * liqData.token.price / ethToken.price;
+        let estimatedEthRev = ethers.utils.parseEther(String(estimatedEthRevRaw).substring(0, 18));
+
+        let estimatedProfit = estimatedEthRev.sub(gasCost);
+
+        liquidationsOutput.push({
+            block: liqData.blockNumber.toString(),
+            borrowedToken: liqData.token.symbol,
+            repayAmount: liqData.token.formatAmount(liqData.repayAmount),
+            revenue: ethers.utils.formatEther(estimatedEthRev),
+            gasPriceGwei: ethers.utils.formatUnits(liqData.gasPrice, 'gwei'),
+            gasUsed: liqData.gasUsed.toString(),
+            gasCost: ethers.utils.formatEther(gasCost),
+            profit: ethers.utils.formatEther(estimatedProfit),
+            liquidator: liqData.liquidator,
+            tx: `https://etherscan.io/tx/${liqData.tx}`,
+        });
+    }
+
+    let csv = new obj2csv(liquidationsOutput);
+
+    await csv.toDisk('gas_analysis.csv', csv);
+
+    console.log(await csv.toString());
 };
