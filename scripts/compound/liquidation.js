@@ -772,7 +772,7 @@ const fetchAccounts = async (blockNumber) => {
     let reqData = {
         min_borrow_value_in_eth: { value: '0.2' },
         block_number: blockNumber,
-        page_size: 2500
+        page_size: 250
     };
 
     let response = await axios.post(url, JSON.stringify(reqData));
@@ -785,25 +785,17 @@ const fetchAccounts = async (blockNumber) => {
 
     console.log(`EXPECTED ACCOUNTS ${response.data.pagination_summary.total_entries}`);
 
-    let tasks = [];
-
     for (var i = 1; i < response.data.pagination_summary.total_pages; i++) {
-        let func = async () => {
-            let page_url = `${url}?page_number=${i + 1}`;
+        let page_url = `${url}?page_number=${i + 1}`;
 
-            let r = await axios.post(page_url, JSON.stringify(reqData));
+        let r = await axios.post(page_url, JSON.stringify(reqData));
 
-            console.log(`FETCHED URL ${page_url}`);
+        console.log(`FETCHED URL ${page_url}`);
 
-            for (let account of r.data.accounts) {
-                allAccounts.push(account);
-            }
-        };
-
-        tasks.push(func());
+        for (let account of r.data.accounts) {
+            allAccounts.push(account);
+        }
     }
-
-    await Promise.all(tasks);
 
     return allAccounts;
 };
@@ -1179,6 +1171,38 @@ const queryEvents = async (comptrollerContract, uniswapOracle, lastBlock, blockN
     return allEvents.length;
 };
 
+let isPollingExternalPricesGlobal = false;
+const doUpdate = async (comptrollerContract, uniswapOracle, lastBlock, provider) => {
+    // fetch the latest block
+    let blockNumber = await provider.getBlockNumber();
+
+    if (blockNumber === lastBlock) {
+        console.log('NO NEW BLOCKS');
+        await new Promise(resolve => setTimeout(resolve, 3 * 1000));
+        return blockNumber;
+    }
+
+    console.log(`UPDATING FOR BLOCKS [${lastBlock + 1} - ${blockNumber}]`);
+
+    let numEvents = await queryEvents(comptrollerContract, uniswapOracle, lastBlock, blockNumber);
+
+    // Begin loading external prices
+    // May trigger liquidation, do not begin until state is at chain head
+    if (!isPollingExternalPricesGlobal) {
+        updateExternalPrices();
+        isPollingExternalPricesGlobal = true;
+    }
+
+    // dont spam the log if no events
+    if (numEvents > 0) {
+        doLiquidation();
+    } else {
+        console.log('NO EVENTS');
+    }
+
+    return blockNumber;
+};
+
 const run = async () => {
     await sendMessage('LIQUIDATOR', 'STARTING - LIVE=${isLiveGlobal}');
 
@@ -1210,50 +1234,39 @@ const run = async () => {
     // Load markets from start block
     let markets = await getMarkets(comptrollerContract, uniswapOracle, startBlock);
 
-    await loadUniswapPairs(Object.values(markets).map((market) => market._data.underlyingToken));
-
     // Fetch accounts from REST service
     let accounts = await getAccounts(markets, startBlock);
+
+    // After fetching accounts since rest service fails spuriously
+    await loadUniswapPairs(Object.values(markets).map((market) => market._data.underlyingToken));
 
     console.log('INITIALIZED');
 
     sendMessage('INITIALIZED', 'liquidator initialized');
 
     let lastBlock = startBlock;
+    let infura_keys = bre.config.app.infura_keys;
+    let infura_index = 0;
+    let provider = new ethers.providers.InfuraProvider('mainnet', infura_keys[infura_index]);
 
-    let isPollingExternalPrices = false;
+    // Repeatedly setup a new provider when an update fails
     while (!shutdownRequestedGlobal) {
-        // fetch the latest block
-        let blockNumber = await ethers.provider.getBlockNumber();
+        try {
+            lastBlock = await doUpdate(
+                comptrollerContract.connect(provider), 
+                uniswapOracle.connect(provider),
+                lastBlock,
+                provider); 
+        } catch (err) {
+            // TODO make sure this only happens for timeout or network errors
+            console.log(`ERROR ON UPDATE WITH PROVIDER ${infura_keys[infura_index]}, switching at block ${lastBlock}`);
+            console.log(err);
 
-        if (blockNumber === lastBlock) {
-            console.log('NO NEW BLOCKS');
-            await new Promise(resolve => setTimeout(resolve, 3 * 1000));
-            continue;
+            sendMessage('ERROR', 'UPDATE ERROR SWITCHING PROVIDER');
+
+            infura_index = (infura_index + 1) % infura_keys.length;
+            provider = new ethers.providers.InfuraProvider('mainnet', infura_keys[infura_index]); // TODO
         }
-
-        console.log(`UPDATING FOR BLOCKS [${lastBlock + 1} - ${blockNumber}]`);
-
-        let numEvents = await queryEvents(comptrollerContract, uniswapOracle, lastBlock, blockNumber);
-
-        // update last block
-        lastBlock = blockNumber;
-
-        // Begin loading external prices
-        // May trigger liquidation, do not begin until state is at chain head
-        if (!isPollingExternalPrices) {
-            updateExternalPrices();
-            isPollingExternalPrices = true;
-        }
-
-        // dont spam the log if no events
-        if (numEvents == 0) {
-            console.log('NO EVENTS');
-            continue;
-        }
-
-        // try liquidation with updated state
-        doLiquidation();
     }
 
     console.log('EXITING');
