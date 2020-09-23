@@ -1204,7 +1204,7 @@ const doUpdate = async (comptrollerContract, uniswapOracle, lastBlock, provider)
 };
 
 const run = async () => {
-    await sendMessage('LIQUIDATOR', 'STARTING - LIVE=${isLiveGlobal}');
+    await sendMessage('LIQUIDATOR', `STARTING - LIVE=${isLiveGlobal}`);
 
     let operatingAccount = await getOperatingAccount();
 
