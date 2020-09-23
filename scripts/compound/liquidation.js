@@ -51,6 +51,7 @@ let CLOSE_FACTOR_MANTISSA = undefined;
 let LIQUIDATION_INCENTIVE_MANTISSA = undefined;
 
 let comptrollerContractGlobal = undefined;
+let uniswapAnchoredViewContractGlobal = undefined;
 let liquidatorContractGlobal = undefined;
 let liquidatorWrapperContractGlobal = undefined;
 let uniswapFactoryContractGlobal = undefined;
@@ -870,6 +871,8 @@ const getUniswapOracle = async () => {
 
     await uniswapAnchoredViewContract.deployed();
 
+    uniswapAnchoredViewContractGlobal = uniswapAnchoredViewContract;
+
     return uniswapAnchoredViewContract;
 };
 
@@ -1137,7 +1140,10 @@ const queryEvents = async (comptrollerContract, uniswapOracle, lastBlock, blockN
         return a.blockNumber - b.blockNumber;
     });
 
-    // apply events in order to state`
+    return allEvents;
+};
+
+const handleEvents = (allEvents) => {
     for (let ev of allEvents) {
         if (!('event' in ev)) {
             // possible issue with the events abi
@@ -1146,13 +1152,13 @@ const queryEvents = async (comptrollerContract, uniswapOracle, lastBlock, blockN
 
         console.log(`EVENT tx ${ev.transactionHash} block ${ev.blockNumber} logIdx ${ev.logIndex} address ${ev.address} topics ${ev.topics}`);
 
-        if (ev.address === comptrollerContract.address) {
+        if (ev.address === comptrollerContractGlobal.address) {
             if (ev['event'] === 'MarketEntered') {
                 onMarketEntered(ev.args);
             } else if (ev['event'] === 'MarketExited') {
                 onMarketExited(ev.args);
             }
-        } else if (ev.address === uniswapOracle.address) {
+        } else if (ev.address === uniswapAnchoredViewContractGlobal.address) {
             if (ev['event'] === 'PriceUpdated') {
                 onPriceUpdated(ev.args.symbol, ev.args.price);                
             }
@@ -1167,40 +1173,69 @@ const queryEvents = async (comptrollerContract, uniswapOracle, lastBlock, blockN
             }
         }
     }
-
-    return allEvents.length;
 };
 
-let isPollingExternalPricesGlobal = false;
-const doUpdate = async (comptrollerContract, uniswapOracle, lastBlock, provider) => {
+const doUpdate = async (lastBlock, provider) => {
     // fetch the latest block
     let blockNumber = await provider.getBlockNumber();
 
     if (blockNumber === lastBlock) {
         console.log('NO NEW BLOCKS');
         await new Promise(resolve => setTimeout(resolve, 3 * 1000));
-        return blockNumber;
+        return [blockNumber, []];
     }
 
     console.log(`UPDATING FOR BLOCKS [${lastBlock + 1} - ${blockNumber}]`);
 
-    let numEvents = await queryEvents(comptrollerContract, uniswapOracle, lastBlock, blockNumber);
+    let comptroller = comptrollerContractGlobal.connect(provider);
+    let oracle = uniswapAnchoredViewContractGlobal.connect(provider);
 
-    // Begin loading external prices
-    // May trigger liquidation, do not begin until state is at chain head
-    if (!isPollingExternalPricesGlobal) {
-        updateExternalPrices();
-        isPollingExternalPricesGlobal = true;
-    }
+    let events = await queryEvents(comptroller, oracle, lastBlock, blockNumber);
 
-    // dont spam the log if no events
-    if (numEvents > 0) {
-        doLiquidation();
-    } else {
+    if (events.length === 0) {
         console.log('NO EVENTS');
     }
 
-    return blockNumber;
+    return [blockNumber, events];
+};
+
+const mainLoop = async (startBlock) => {
+    let lastBlock = startBlock;
+    let infura_keys = bre.config.app.infura_keys;
+    let infura_index = 0;
+    let provider = new ethers.providers.InfuraProvider('mainnet', infura_keys[infura_index]);
+
+    // Repeatedly setup a new provider when an update fails
+    let isPollingExternalPrices = false;
+    while (!shutdownRequestedGlobal) {
+        let events;
+
+        try {
+            // only provider calls in here
+            [lastBlock, events] = await doUpdate(lastBlock, provider); 
+        } catch (err) {
+            console.log(`ERROR WITH PROVIDER ${infura_keys[infura_index]}`);
+            console.log(err);
+
+            sendMessage('ERROR', 'PROVIDER ERROR - ${err}');
+
+            infura_index = (infura_index + 1) % infura_keys.length;
+            provider = new ethers.providers.InfuraProvider('mainnet', infura_keys[infura_index]); // TODO
+
+            continue;
+        }
+
+        if (!isPollingExternalPrices) {
+            updateExternalPrices();
+            isPollingExternalPrices = true;
+        }
+
+        if (events.length > 0) {
+            handleEvents(events);
+
+            doLiquidation();
+        }
+    }
 };
 
 const run = async () => {
@@ -1244,30 +1279,7 @@ const run = async () => {
 
     sendMessage('INITIALIZED', 'liquidator initialized');
 
-    let lastBlock = startBlock;
-    let infura_keys = bre.config.app.infura_keys;
-    let infura_index = 0;
-    let provider = new ethers.providers.InfuraProvider('mainnet', infura_keys[infura_index]);
-
-    // Repeatedly setup a new provider when an update fails
-    while (!shutdownRequestedGlobal) {
-        try {
-            lastBlock = await doUpdate(
-                comptrollerContract.connect(provider), 
-                uniswapOracle.connect(provider),
-                lastBlock,
-                provider); 
-        } catch (err) {
-            // TODO make sure this only happens for timeout or network errors
-            console.log(`ERROR ON UPDATE WITH PROVIDER ${infura_keys[infura_index]}, switching at block ${lastBlock}`);
-            console.log(err);
-
-            sendMessage('ERROR', 'UPDATE ERROR SWITCHING PROVIDER');
-
-            infura_index = (infura_index + 1) % infura_keys.length;
-            provider = new ethers.providers.InfuraProvider('mainnet', infura_keys[infura_index]); // TODO
-        }
-    }
+    await mainLoop(startBlock);
 
     console.log('EXITING');
 
