@@ -174,7 +174,6 @@ const liquidateAccount = (account, borrowedMarket, collateralMarket, repayBorrow
     });
 };
 
-// TODO add caching
 const getUniswapPair = (borrowMarketUnderlyingAddress, collateralMarketUnderlyingAddress) => {
     if (borrowMarketUnderlyingAddress === collateralMarketUnderlyingAddress) {
         if (borrowMarketUnderlyingAddress === WETH_ADDRESS) {
@@ -1220,7 +1219,7 @@ const mainLoop = async (startBlock) => {
             sendMessage('ERROR', 'PROVIDER ERROR - ${err}');
 
             infura_index = (infura_index + 1) % infura_keys.length;
-            provider = new ethers.providers.InfuraProvider('mainnet', infura_keys[infura_index]); // TODO
+            provider = new ethers.providers.InfuraProvider('mainnet', infura_keys[infura_index]);
 
             continue;
         }
