@@ -1,3 +1,4 @@
+docker kill $(cat container.txt)
 docker build -t liquidator .
 docker run \
 	-d \
@@ -5,4 +6,5 @@ docker run \
 	--env-file vars.env \
 	-e PRIVATE_KEY=$(cat .mainnet.key) \
 	-e COINBASE_SECRET=$(cat .coinbase_secret.txt) \
-	liquidator
+	liquidator \
+	> container.txt

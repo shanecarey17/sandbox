@@ -5,8 +5,34 @@ usePlugin("buidler-deploy");
 const fs = require('fs');
 const assert = require('assert');
 
-const INFURA_URL = process.env.INFURA_URL;
-assert(INFURA_URL != null);
+const INFURA_URLS = [
+    'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d',
+    'https://mainnet.infura.io/v3/e4aa52bf76a948ea92ae7772d299aef0',
+    'https://mainnet.infura.io/v3/d1e85bc998be4291a691f223978d2d4b',
+    'https://mainnet.infura.io/v3/09f371bbdbe94b0b9bb684a0cf20dfa3',
+    'https://mainnet.infura.io/v3/ff49fc5d6a654d2fad397b69912d4e3e',
+    'https://mainnet.infura.io/v3/d31d552b4e5d41b5b34aec1310fbdf8f'
+];
+
+const INFURA_URL = (() => {
+    let infuraUrlIndex = 0;
+
+    try {
+        infuraUrlIndex = parseInt(fs.readFileSync('var/infura_index.txt'));
+    } catch (err) {
+        // pass
+    }
+
+    infuraUrlIndex = (infuraUrlIndex + 1) % INFURA_URLS.length;
+
+    fs.writeFileSync('var/infura_index.txt', String(infuraUrlIndex));
+
+    let infuraUrl = INFURA_URLS[infuraUrlIndex];
+
+    console.log(`USING INFURA ACCOUNT ${infuraUrl}`);
+
+    return infuraUrl;
+})();
 
 //const INFURA_URL = 'https://mainnet.infura.io/v3/e4aa52bf76a948ea92ae7772d299aef0'; // Chris
 //const INFURA_URL = 'https://mainnet.infura.io/v3/b6b445ca6dbc424f9a9309cb14ddae5d'; // Shane
