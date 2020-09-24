@@ -1234,7 +1234,7 @@ const mainLoop = async (startBlock) => {
             console.log(`ERROR WITH PROVIDER ${infura_keys[infura_index]}`);
             console.log(err);
 
-            sendMessage('ERROR', 'PROVIDER ERROR - ${err}');
+            sendMessage('ERROR', `PROVIDER ERROR - ${err}`);
 
             infura_index = (infura_index + 1) % infura_keys.length;
             provider = new ethers.providers.InfuraProvider('mainnet', infura_keys[infura_index]);
