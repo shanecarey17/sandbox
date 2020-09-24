@@ -6,7 +6,7 @@ import "./MyERC20.sol";
 import "./IComptroller.sol";
 import "./Utils.sol";
 
-contract CompoundLiquidatorLite is IUniswapV2Callee {
+contract CompoundLiquidatorLite {
     address constant public CETH_ADDRESS            = 0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5;
 
     address public owner;
@@ -21,7 +21,7 @@ contract CompoundLiquidatorLite is IUniswapV2Callee {
     fallback() external payable {}
     receive() external payable {}
 
-    function liquidate(borrowAccount, cTokenBorrowed, cTokenCollateral, repayBorrowAmount) external returns (uint) {
+    function liquidate(address borrowAccount, address cTokenBorrowed, address cTokenCollateral, uint repayBorrowAmount) external returns (uint) {
         require(callers[msg.sender], "not caller");
         require(ICToken(cTokenBorrowed).comptroller() == ICToken(cTokenCollateral).comptroller(), "cTokens have different comptrollers");
         require(repayBorrowAmount > 0, "zero repayBorrowAmount");
