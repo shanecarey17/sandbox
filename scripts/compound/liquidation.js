@@ -956,10 +956,15 @@ const getOperatingAccount = async () => {
 };
 
 const updateUniswapPairs = async () => {
-    for (let pairs of Object.values(uniswapPairsGlobal)) {
-        for (let pair of Object.values(pairs)) {
-            pair.reserves = await pair.contract.getReserves();
+    try {
+        for (let pairs of Object.values(uniswapPairsGlobal)) {
+            for (let pair of Object.values(pairs)) {
+                pair.reserves = await pair.contract.getReserves();
+            }
         }
+    } catch (err) {
+        console.log(`ERROR UPDATING UNISWAP RESERVES - ${err}`);
+        console.log(err);
     }
 
     let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
@@ -1010,26 +1015,31 @@ const loadUniswapPairs = async (tokens) => {
 };
 
 const updateAccountBalance = async (operatingAddress) => {
-    let operatorBalance = await ethers.provider.getBalance(operatingAddress);
+    try {
+        let operatorBalance = await ethers.provider.getBalance(operatingAddress);
 
-    let balanceFmt = ethers.utils.formatEther(operatorBalance);
+        let balanceFmt = ethers.utils.formatEther(operatorBalance);
 
-    if (operatingAccountBalanceGlobal !== undefined && !operatorBalance.eq(operatingAccountBalanceGlobal)) {
-        requiresAccountBalanceUpdateGlobal = false;
+        if (operatingAccountBalanceGlobal !== undefined && !operatorBalance.eq(operatingAccountBalanceGlobal)) {
+            requiresAccountBalanceUpdateGlobal = false;
 
-        let prevBalanceFmt = ethers.utils.formatEther(operatingAccountBalanceGlobal);
+            let prevBalanceFmt = ethers.utils.formatEther(operatingAccountBalanceGlobal);
 
-        sendMessage('BALANCE_UPDATED', `Operating account balance updated ${prevBalanceFmt} => ${balanceFmt} ETH`);
+            sendMessage('BALANCE_UPDATED', `Operating account balance updated ${prevBalanceFmt} => ${balanceFmt} ETH`);
+        }
+
+        operatingAccountBalanceGlobal = operatorBalance;
+
+        console.log(`OPERATING ACCOUNT ${operatingAddress} BALANCE ${balanceFmt}`);
+
+        return operatorBalance;
+    } catch (err) {
+        console.log('FAILED TO UPDATE ACCOUNT BALANCE');
+        console.log(err);
+    } finally {
+        let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
+        task.then(() => updateAccountBalance(operatingAddress));
     }
-
-    operatingAccountBalanceGlobal = operatorBalance;
-
-    console.log(`OPERATING ACCOUNT ${operatingAddress} BALANCE ${balanceFmt}`);
-
-    let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
-    task.then(() => updateAccountBalance(operatingAddress));
-
-    return operatorBalance;
 };
 
 const updateExternalPrices = async () => {
