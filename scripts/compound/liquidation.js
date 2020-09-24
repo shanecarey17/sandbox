@@ -58,6 +58,8 @@ let uniswapFactoryContractGlobal = undefined;
 let operatingAccountGlobal = undefined;
 let operatingAccountBalanceGlobal = undefined;
 
+let providerGlobal = undefined;
+
 let marketsGlobal = {};
 let coinbasePricesGlobal = {};
 let accountsGlobal = {};
@@ -919,9 +921,13 @@ const updateGasPrice = async () => {
         gasPriceGlobal = ethers.utils.parseUnits(result.data.result.FastGasPrice, 'gwei');
     } catch (err) {
         // Try getting the gas price from the provider directly (costs requests)
-        gasPriceGlobal = await ethers.provider.getGasPrice();
+        try {
+            gasPriceGlobal = await providerGlobal.getGasPrice();
 
-        console.log(`GAS RESULT (provider) ${ethers.utils.formatUnits(gasPriceGlobal, 'gwei')}`);
+            console.log(`GAS RESULT (provider) ${ethers.utils.formatUnits(gasPriceGlobal, 'gwei')}`);
+        } catch (err) {
+            console.log('FAILED TO UPDATE GAS PRICE')
+        }
     }
 
     // If the account has insufficient balance, notify
@@ -959,7 +965,7 @@ const updateUniswapPairs = async () => {
     try {
         for (let pairs of Object.values(uniswapPairsGlobal)) {
             for (let pair of Object.values(pairs)) {
-                pair.reserves = await pair.contract.getReserves();
+                pair.reserves = await pair.contract.connect(providerGlobal).getReserves();
             }
         }
     } catch (err) {
@@ -1016,7 +1022,7 @@ const loadUniswapPairs = async (tokens) => {
 
 const updateAccountBalance = async (operatingAddress) => {
     try {
-        let operatorBalance = await ethers.provider.getBalance(operatingAddress);
+        let operatorBalance = await providerGlobal.getBalance(operatingAddress);
 
         let balanceFmt = ethers.utils.formatEther(operatorBalance);
 
@@ -1214,6 +1220,8 @@ const mainLoop = async (startBlock) => {
     let infura_index = 0;
     let provider = new ethers.providers.InfuraProvider('mainnet', infura_keys[infura_index]);
 
+    providerGlobal = provider;
+
     // Repeatedly setup a new provider when an update fails
     let isPollingExternalPrices = false;
     while (!shutdownRequestedGlobal) {
@@ -1230,6 +1238,7 @@ const mainLoop = async (startBlock) => {
 
             infura_index = (infura_index + 1) % infura_keys.length;
             provider = new ethers.providers.InfuraProvider('mainnet', infura_keys[infura_index]);
+            providerGlobal = provider;
 
             continue;
         }
@@ -1249,6 +1258,8 @@ const mainLoop = async (startBlock) => {
 
 const run = async () => {
     await sendMessage('LIQUIDATOR', `STARTING - LIVE=${isLiveGlobal}`);
+
+    providerGlobal = ethers.provider;
 
     let operatingAccount = await getOperatingAccount();
 
