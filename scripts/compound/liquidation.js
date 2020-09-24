@@ -38,6 +38,7 @@ const CETH_ADDRESS = ethers.utils.getAddress('0x4Ddc2D193948926D02f9B1fE9e1daa07
 const EXPONENT = constants.TEN.pow(18); // Compound math expScale
 
 const LIQUIDATE_GAS_ESTIMATE = ethers.BigNumber.from(2000000); // from ganache test
+const LIQUIDATE_LITE_GAS_ESTIMATE = ethers.BigNumber.from(800000); // TODO gastoken savings
 
 const slackURL = 'https://hooks.slack.com/services/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';
 
@@ -54,9 +55,12 @@ let comptrollerContractGlobal = undefined;
 let uniswapAnchoredViewContractGlobal = undefined;
 let liquidatorContractGlobal = undefined;
 let liquidatorWrapperContractGlobal = undefined;
+let liquidatorLiteContractGlobal = undefined;
 let uniswapFactoryContractGlobal = undefined;
 let operatingAccountGlobal = undefined;
 let operatingAccountBalanceGlobal = undefined;
+
+const liquidatorLiteTokenBalances = {};
 
 let providerGlobal = undefined;
 
@@ -95,6 +99,27 @@ const sendMessage = async (subject, message) => {
 
     await axios.post(slackURL, JSON.stringify(data));
 };
+
+const updateLiquidatorLiteTokenBalances = async () => {
+    try {
+        for (let market of Object.values(marketsGlobal)) {
+            let token = market._data.underlyingToken;
+
+            let balance = token === tokens.TokenFactory.getEthToken()
+                ? await providerGlobal.getBalance(liquidatorLiteContractGlobal.address) // eth
+                : await token.contract.connect(providerGlobal).balanceOf(liquidatorLiteContractGlobal.address); // erc20
+
+            liquidatorLiteTokenBalancesGlobal[token.address] = balance;
+
+            consolei.log(`LIQUIDATOR LITE ${token.symbol} BALANCE ${token.formatAmount(balance)}`);
+        }
+    } catch (err) {
+        console.log(constants.CONSOLE_RED, `ERROR FETCHING LIQUIDATOR LITE BALANCES - ${err}`);
+        console.log(err);
+    } finally {
+        setTimeout(updateLiquidatorLiteTokenBalances, 60 * 1000);
+    }
+}
 
 const checkUniswapLiquidity = (borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount) => {
     let ethToken = tokens.TokenFactory.getEthToken();
@@ -137,7 +162,7 @@ const checkUniswapLiquidity = (borrowedMarket, collateralMarket, repayBorrowAmou
     return true;
 };
 
-const liquidateAccount = (account, borrowedMarket, collateralMarket, repayBorrowAmount, coinbaseEntries) => {
+const liquidateAccount = (account, borrowedMarket, collateralMarket, repayBorrowAmount, coinbaseEntries, useLiteContract) => {
     if (isDoneGlobal) {
         console.log('Liquidation already sent');
         return;
@@ -145,23 +170,46 @@ const liquidateAccount = (account, borrowedMarket, collateralMarket, repayBorrow
         isDoneGlobal = true;
     }
 
-    let liquidateMethod = isLiveGlobal ? 
-        liquidatorWrapperContractGlobal.liquidate 
-        : liquidatorWrapperContractGlobal.callStatic.liquidate; // callStatic = dry run
+    let task;
 
-    liquidateMethod(
-        account,
-        borrowedMarket.address,
-        collateralMarket.address,
-        repayBorrowAmount,
-        coinbaseEntries.map(({message}) => message),
-        coinbaseEntries.map(({signature}) => signature),
-        coinbaseEntries.map(({symbol}) => symbol),
-        {
-            gasPrice: gasPriceGlobal,
-            gasLimit: LIQUIDATE_GAS_ESTIMATE,
-        }
-    ).then(async (result) => {
+    if (useLiteContract) {
+        let liquidateMethod = isLiveGlobal ?
+            liquidatorLiteContractGlobal.liquidate
+            : liquidateLiteContractGlobal.callStatic.liquidate;
+
+        task = liquidateMethod(
+            account,
+            borrowedMarket.address,
+            collateralMarket.address,
+            repayBorrowAmount,
+            0, // TODO calc chi gastoken amount,
+            {
+                gasPrice: gasPriceGlobal,
+                gasLimit: LIQUIDATE_LITE_GAS_ESTIMATE, // TODO this needs to be without gas savings
+            }
+        );
+    } else {
+        let liquidateMethod = isLiveGlobal ? 
+            liquidatorWrapperContractGlobal.liquidate 
+            : liquidatorWrapperContractGlobal.callStatic.liquidate; // callStatic = dry run
+
+        task = liquidateMethod(
+            account,
+            borrowedMarket.address,
+            collateralMarket.address,
+            repayBorrowAmount,
+            coinbaseEntries.map(({message}) => message),
+            coinbaseEntries.map(({signature}) => signature),
+            coinbaseEntries.map(({symbol}) => symbol),
+            {
+                gasPrice: gasPriceGlobal,
+                gasLimit: LIQUIDATE_GAS_ESTIMATE,
+            }
+        );
+    }
+
+
+    task.then(async (result) => {
         console.log(`LIQUIDATED ACCOUNT ${account} - RESULT ${JSON.stringify(result)}`);
 
         await sendMessage('LIQUIDATION', `LIQUIDATED ACCOUNT ${account} - ${JSON.stringify(result)}`);
@@ -199,6 +247,7 @@ const doLiquidation = () => {
     let ethToken = tokens.TokenFactory.getEthToken();
 
     const liquidationGasCost = LIQUIDATE_GAS_ESTIMATE.mul(gasPriceGlobal);
+    const liquidationLiteGasCost = LIQUIDATE_LITE_GAS_ESTIMATE.mul(gasPriceGlobal);
 
     const liquidationCandidates = [];
 
@@ -388,9 +437,22 @@ const doLiquidation = () => {
         let revenue = seizeAmountEth.sub(repayAmountEth);
         console.log(`++ REVENUE  ${ethToken.formatAmount(revenue)} USD`);
 
+        // Do we have a balance to repay, otherwise check uniswap for flash loan availability/liquidity
+        let liquidatorLiteBalance = liquidatorLiteTokenBalancesGlobal[borrowedMarketData.underlyingToken.address];
+        let useLiteContract = true;
+        if (!(liquidatorLiteBalance.gte(repayAmount))) {
+            useLiteContract = false;
+            if (!checkUniswapLiquidity(borrowedMarketData, suppliedMarketData, repayAmount, seizeAmount)) {
+                continue;
+            }
+            console.log(`++ USING FLASH LOAN CONTRACT`);
+        } else {
+            console.log(`++ USING LITE BALANCE`);
+        }
+
         // Calculate gas costs
         let ethPrice = markets[CETH_ADDRESS]._data.underlyingPrice; 
-        let liquidationGasCostUSD = liquidationGasCost.mul(ethPrice).div(EXPONENT);
+        let liquidationGasCostUSD = useLiteContract ? liquidationLiteGasCost.mul(ethPrice).div(EXPONENT) : liquidationGasCost.mul(ethPrice).div(EXPONENT);
         let gasLineColor = liquidationGasCost.gt(operatingAccountBalanceGlobal) ? constants.CONSOLE_RED : constants.CONSOLE_DEFAULT;
         console.log(gasLineColor, `++ GAS COST ${ethToken.formatAmount(liquidationGasCostUSD)} USD / ${ethers.utils.formatEther(liquidationGasCost)} ETH (${LIQUIDATE_GAS_ESTIMATE} @ ${ethers.utils.formatUnits(gasPriceGlobal, 'gwei')} gwei) (${ethers.utils.formatEther(operatingAccountBalanceGlobal)} avail.)`);
 
@@ -399,10 +461,6 @@ const doLiquidation = () => {
         let profitColor = profit.gt(0) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
         console.log(profitColor, `++ PROFIT ${ethToken.formatAmount(profit)} USD`);
 
-        // Check uniswap for flash loan availability/liquidity
-        if (!checkUniswapLiquidity(borrowedMarketData, suppliedMarketData, repayAmount, seizeAmount)) {
-            continue;
-        }
 
         if (profit.gt(0)) {
             liquidationCandidates.push({
@@ -446,7 +504,8 @@ const doLiquidation = () => {
         topCandidate.borrowedMarketData,
         topCandidate.suppliedMarketData,
         topCandidate.repayAmount,
-        topCandidate.coinbaseEntries
+        topCandidate.coinbaseEntries,
+        topCandidate.useLiteContract
     ); 
 };
 
@@ -905,6 +964,27 @@ const getLiquidatorWrapper = async (operatingAccount) => {
     return liquidatorWrapperContractGlobal;
 };
 
+const getDeployedContract = async (contractName, signer) => {
+    const deployment = await deployments.get(contractName);
+
+    const contract = await ethers.getContractAt(contractName, liqWrapperDeployment.address, operatingAccount);
+
+    console.log(`CONTRACT ${contractName} DEPLOYED @ ${contract.address}`);
+
+    return contract;
+};
+
+const getLiquidatorLite = async (operatingAccount) => {
+    let liquidatorLiteContract = await getDeployedContract('CompoundLiquidatorLite', operatingAccount);
+
+    let operatingAddress = await operatingAccount.getAddress();
+    assert(await liquidatorWrapperContractGlobal.owner() == operatingAddress);
+
+    liquidatorLiteContractGlobal = liquidatorLiteContract;
+
+    return liquidatorLiteContract;
+}
+
 const getUniswapFactory = async () => {
     uniswapFactoryContractGlobal = await ethers.getContractAt('IUniswapV2Factory', UNISWAP_FACTORY_ADDRESS);
 
@@ -1267,6 +1347,8 @@ const run = async () => {
 
     let liquidatorWrapper = await getLiquidatorWrapper(operatingAccount);
 
+    let liquidatorLite = await getLiquidatorLite(operatingAccount);
+
     await tokens.TokenFactory.init();
 
     await updateGasPrice();
@@ -1294,6 +1376,8 @@ const run = async () => {
 
     // After fetching accounts since rest service fails spuriously
     await loadUniswapPairs(Object.values(markets).map((market) => market._data.underlyingToken));
+
+    await updateLiquidatorLiteTokenBalances();
 
     console.log('INITIALIZED');
 
