@@ -5,9 +5,11 @@ import "./ICToken.sol";
 import "./MyERC20.sol";
 import "./IComptroller.sol";
 import "./Utils.sol";
+import "./IChiGastoken.sol";
 
 contract CompoundLiquidatorLite {
-    address constant public CETH_ADDRESS            = 0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5;
+    address constant public CETH_ADDRESS = 0x4Ddc2D193948926D02f9B1fE9e1daa0718270ED5;
+    address constant public CHI_ADDRESS = 0x0000000000004946c0e9F43F4Dee607b0eF1fA1c;
 
     address public owner;
     mapping(address => bool) public callers;
@@ -21,10 +23,15 @@ contract CompoundLiquidatorLite {
     fallback() external payable {}
     receive() external payable {}
 
-    function liquidate(address borrowAccount, address cTokenBorrowed, address cTokenCollateral, uint repayBorrowAmount) external returns (uint) {
+    function liquidate(address borrowAccount, address cTokenBorrowed, address cTokenCollateral, uint repayBorrowAmount, uint gasTokens) external returns (uint) {
         require(callers[msg.sender], "not caller");
         require(ICToken(cTokenBorrowed).comptroller() == ICToken(cTokenCollateral).comptroller(), "cTokens have different comptrollers");
         require(repayBorrowAmount > 0, "zero repayBorrowAmount");
+
+        // 0. Burn the gastoken(s)
+        if (gasTokens > 0) {
+            IChiGastoken(CHI_ADDRESS).free(gasTokens); // TODO freeUpTo(gasTokens) ?
+        }
 
         // 1. Repay borrowed loan and receive collateral
         if (cTokenBorrowed == CETH_ADDRESS) {

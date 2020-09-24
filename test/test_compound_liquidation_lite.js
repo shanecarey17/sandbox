@@ -10,6 +10,8 @@ const COMPTROLLER_ADDRESS = '0x3d9819210a31b4961b30ef54be2aed79b9c9cd3b';
 
 const UNISWAP_FACTORY = '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f';
 
+const CHI_ADDRESS = '0x0000000000004946c0e9F43F4Dee607b0eF1fA1c';
+
 const CDAI = '0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643';
 const CETH = '0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5';
 const CUSDC = '0x39aa39c021dfbae8fac545936693ac917d5e7563';
@@ -121,6 +123,11 @@ describe("LiquidatorLite", async () => {
             to: DAI_WHALE,
             value: ethers2.utils.parseEther('0.1')
         });
+
+        // Give the contract some CHI
+        let chiToken = await ethers.getContractAt("IChiGastoken", CHI_ADDRESS);
+        await chiToken.connect(signers[9]).mint(100);
+        await chiToken.connect(signers[9]).transfer(liquidator.address, 100);
 
         let compAdmin = await ethers.provider.getSigner(COMPTROLLER_ADMIN);
         await comptrollerContract.connect(compAdmin)._setPriceOracle(oracleContract.address);
@@ -249,6 +256,7 @@ describe("LiquidatorLite", async () => {
             CDAI,
             CDAI,
             repayBorrowAmount,
+            14, // gastokens
             {
                 gasLimit: 5 * 10**6, // estimate gas on ganache has bug
             }
