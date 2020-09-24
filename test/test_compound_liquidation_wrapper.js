@@ -10,7 +10,7 @@ const CETH = '0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5';
 const CUSDC = '0x39aa39c021dfbae8fac545936693ac917d5e7563';
 const CZRX = "0xB3319f5D18Bc0D84dD1b4825Dcde5d5f7266d407";
 
-describe("LiquidatorWrapper", async () => {
+describe.skip("LiquidatorWrapper", async () => {
 	let liquidatorContract;
 	let liquidatorWrapperContract;
 

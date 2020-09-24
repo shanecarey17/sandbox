@@ -85,7 +85,7 @@ describe.skip("TestZap", async () => {
     });
 });
 
-describe.skip("Liquidator", async () => {
+describe("LiquidatorLite", async () => {
     let liquidatorContract;
     let comptrollerContract;
     let oracleContract;
@@ -99,9 +99,9 @@ describe.skip("Liquidator", async () => {
         ownerAccountAddress = await ownerAccount.getAddress();
 
         // Deploy liquidator
-        await deployments.fixture('liquidator'); // tag
-        const liqDeployment = await deployments.get("CompoundLiquidator");
-        const liquidator = await ethers.getContractAt("CompoundLiquidator", liqDeployment.address);
+        await deployments.fixture('liquidator_lite'); // tag
+        const liqDeployment = await deployments.get("CompoundLiquidatorLite");
+        const liquidator = await ethers.getContractAt("CompoundLiquidatorLite", liqDeployment.address);
         liquidatorContract = liquidator;
 
         // Get comptroller
@@ -124,10 +124,11 @@ describe.skip("Liquidator", async () => {
 
         let compAdmin = await ethers.provider.getSigner(COMPTROLLER_ADMIN);
         await comptrollerContract.connect(compAdmin)._setPriceOracle(oracleContract.address);
+        console.log('checking oracle set correctly');
         expect(await comptrollerContract.oracle()).to.equal(oracleContract.address);
     });
 
-    it('DAI-DAI', async () => {
+    it.only('DAI-DAI', async () => {
         let signers = await ethers.getSigners();
         const borrowingAccount = signers[1];
         const borrowAccountAddress = await borrowingAccount.getAddress();
@@ -139,8 +140,14 @@ describe.skip("Liquidator", async () => {
         await oracleContract.setUnderlyingPrice(CDAI, priceOne);
         await oracleContract.setUnderlyingPrice(CUSDC, priceOne.mul(ethers2.BigNumber.from(10).pow(12)));
 
-        expect(await oracleContract.getUnderlyingPrice(CDAI)).to.equal(priceOne);
-        expect(await oracleContract.getUnderlyingPrice(CUSDC)).to.equal(priceOne.mul(ethers2.BigNumber.from(10).pow(12)));
+        console.log('checking oracle dai price set correctly')
+        let oracleCDAIPrice = await oracleContract.getUnderlyingPrice(CDAI);
+        console.log(oracleCDAIPrice.toString());
+        expect(oracleCDAIPrice.toString()).to.equal(priceOne.toString());
+        console.log('checking oracle usdc price set correctly')
+        let oracleUSDCPrice = await oracleContract.getUnderlyingPrice(CUSDC);
+        console.log(oracleUSDCPrice.toString());
+        expect(oracleUSDCPrice.toString()).to.equal(priceOne.mul(ethers2.BigNumber.from(10).pow(12)).toString());
 
         const daiBorrowAmount = ethers2.utils.parseUnits('3');
         const daiWhale = await ethers.provider.getSigner(DAI_WHALE);
@@ -231,6 +238,8 @@ describe.skip("Liquidator", async () => {
         console.log(`synced uniswap  dai/usdc price: ${daiReserve2.div(usdcReserve2).toString()}`);
 */
         var repayBorrowAmount = ethers2.utils.parseUnits('0.2');
+
+        await dai.connect(daiWhale).transfer(liquidatorContract.address, repayBorrowAmount);
 
         let prevOwnerDaiBalance = await dai.balanceOf(ownerAccountAddress); // second test, residual balance
         console.log(`owner prev dai balance: ${prevOwnerDaiBalance.toString()}`);
