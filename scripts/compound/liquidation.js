@@ -60,7 +60,7 @@ let uniswapFactoryContractGlobal = undefined;
 let operatingAccountGlobal = undefined;
 let operatingAccountBalanceGlobal = undefined;
 
-const liquidatorLiteTokenBalances = {};
+const liquidatorLiteTokenBalancesGlobal = {};
 
 let providerGlobal = undefined;
 
@@ -111,7 +111,7 @@ const updateLiquidatorLiteTokenBalances = async () => {
 
             liquidatorLiteTokenBalancesGlobal[token.address] = balance;
 
-            consolei.log(`LIQUIDATOR LITE ${token.symbol} BALANCE ${token.formatAmount(balance)}`);
+            console.log(`LIQUIDATOR LITE BALANCE ${token.formatAmount(balance)} ${token.symbol}`);
         }
     } catch (err) {
         console.log(constants.CONSOLE_RED, `ERROR FETCHING LIQUIDATOR LITE BALANCES - ${err}`);
@@ -119,7 +119,7 @@ const updateLiquidatorLiteTokenBalances = async () => {
     } finally {
         setTimeout(updateLiquidatorLiteTokenBalances, 60 * 1000);
     }
-}
+};
 
 const checkUniswapLiquidity = (borrowedMarket, collateralMarket, repayBorrowAmount, seizeAmount) => {
     let ethToken = tokens.TokenFactory.getEthToken();
@@ -175,7 +175,7 @@ const liquidateAccount = (account, borrowedMarket, collateralMarket, repayBorrow
     if (useLiteContract) {
         let liquidateMethod = isLiveGlobal ?
             liquidatorLiteContractGlobal.liquidate
-            : liquidateLiteContractGlobal.callStatic.liquidate;
+            : liquidatorLiteContractGlobal.callStatic.liquidate;
 
         task = liquidateMethod(
             account,
@@ -240,6 +240,200 @@ const getUniswapPair = (borrowMarketUnderlyingAddress, collateralMarketUnderlyin
     }
 };
 
+const calculateAccountShortfall = (account) => {
+    let ethToken = tokens.TokenFactory.getEthToken();
+
+    let errRet = [constants.ZERO, null, null, null];
+
+    let accountConsoleLines = [`LIQUIDATION CANDIDATE ${account.address}`];
+
+    let totalBorrowedEth = constants.ZERO;
+    let totalSuppliedEth = constants.ZERO;
+
+    let borrowedMarkets = [];
+    let suppliedMarkets = [];
+
+    for (let [marketAddress, accountMarket] of Object.entries(account)) {
+        if (marketAddress === 'address' || marketAddress === 'liquidated') {
+            continue; // TODO fix hack
+        }
+
+        let marketData = marketsGlobal[marketAddress]._data;
+
+        // coinbase doesn't have USDC price :okay:
+        let coinbasePrice = coinbasePricesGlobal[marketData.underlyingToken.symbol]
+            ? coinbasePricesGlobal[marketData.underlyingToken.symbol].normalizedPrice
+            : null;
+
+        let suppliedUnderlying = accountMarket.tokens
+            .mul(marketData.getExchangeRate()).div(EXPONENT);
+
+        let borrowedUnderlying = accountMarket.borrows;
+
+        let useCoinBasePrice = false;
+        if (coinbasePrice !== null) {
+            if (borrowedUnderlying.gt(suppliedUnderlying) && coinbasePrice.gt(marketData.underlyingPrice)) {
+                useCoinBasePrice = true;
+            }
+
+            if (suppliedUnderlying.gt(borrowedUnderlying) && marketData.underlyingPrice.gt(coinbasePrice)) {
+                useCoinBasePrice = true;
+            }
+        }
+
+        let priceForCalculation = useCoinBasePrice ? coinbasePrice : marketData.underlyingPrice;
+
+        let marketSuppliedEth = suppliedUnderlying
+            .mul(marketData.collateralFactor).div(EXPONENT)
+            .mul(priceForCalculation).div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
+
+        let marketBorrowedEth = borrowedUnderlying
+            .mul(priceForCalculation)
+            .div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
+
+        let exchRateFmt = marketData.getExchangeRate() / 10**(18 + (marketData.underlyingToken.decimals - marketData.token.decimals));
+        accountConsoleLines.push(`++ ${marketData.underlyingToken.formatAmount(borrowedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketBorrowedEth)} USD borrowed`);
+        accountConsoleLines.push(`++    ${marketData.token.formatAmount(accountMarket.tokens)} ${marketData.token.symbol} @${exchRateFmt} => ${marketData.underlyingToken.formatAmount(suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketSuppliedEth)} USD supplied @(${ethToken.formatAmount(marketData.collateralFactor)})`);
+
+        totalBorrowedEth = totalBorrowedEth.add(marketBorrowedEth);
+        totalSuppliedEth = totalSuppliedEth.add(marketSuppliedEth);
+
+        // use this to keep track of shortfall for sort
+
+        borrowedMarkets.push({
+            account: accountMarket,
+            ethAmount: marketBorrowedEth,
+            market: marketData,
+            useCoinBasePrice,
+            chosenPrice: priceForCalculation,
+        });
+
+        suppliedMarkets.push({
+            account: accountMarket,
+            ethAmount: marketSuppliedEth,
+            market: marketData,
+            useCoinBasePrice,
+            chosenPrice: priceForCalculation,
+        });
+    }
+
+    let shortfallEth = totalBorrowedEth.sub(totalSuppliedEth);
+
+    if (shortfallEth.lte(0)) {
+        // Account not in shortfall
+        return errRet;
+    }
+
+    // TODO next we can prune for where we dont need to post coinbase price
+
+    // sort so largest is in front by ethAmount
+    borrowedMarkets.sort((a, b) => { return a.ethAmount.sub(b.ethAmount).lt(0) ? 1 : -1; });
+    suppliedMarkets.sort((a, b) => { return a.ethAmount.sub(b.ethAmount).lt(0) ? 1 : -1; });
+
+    let maxBorrowedEthEntry = borrowedMarkets[0];
+    let maxSuppliedEthEntry = suppliedMarkets[0];
+
+    // Same token can only be liquidated for v2 erc20 (DAI, USDT)
+    if (maxBorrowedEthEntry.market === maxSuppliedEthEntry.market) {
+        if (!(maxBorrowedEthEntry.market.underlyingToken.symbol in ['DAI', 'USDT'])) {
+            if (borrowedMarkets.length == 1 || suppliedMarkets.length == 1) {
+                return errRet; // Only one entered market
+            }
+
+            // Choose the largest market by eth amount
+            if (borrowedMarkets[1].ethAmount.gt(suppliedMarkets[1].ethAmount)) {
+                maxBorrowedEthEntry = borrowedMarkets[1];
+            } else {
+                maxSuppliedEthEntry = suppliedMarkets[1];
+            }
+        }
+    }
+
+    // The account is subject to liquidation, log
+    for (let line of accountConsoleLines) {
+        console.log(line);
+    }
+
+    console.log('++');
+    console.log(`++ TOTAL ${ethToken.formatAmount(totalBorrowedEth)} USD borrowed / ${ethToken.formatAmount(totalSuppliedEth)} USD supplied`);
+    console.log(`++ SHORTFALL ${ethToken.formatAmount(shortfallEth)}`);
+
+    let coinbaseEntries = [];
+
+    for (let i = 0; i < borrowedMarkets.length; i++) {
+        if (borrowedMarkets[i].useCoinBasePrice) {
+            let coinbaseEntry = coinbasePricesGlobal[borrowedMarkets[i].market.underlyingToken.symbol];
+
+            coinbaseEntries.push({
+                message: coinbaseEntry.message,
+                signature: coinbaseEntry.signature,
+                symbol: coinbaseEntry.rawSymbol
+            });
+        }
+    }
+
+    let coinbaseSymbols = coinbaseEntries.map(({symbol}) => symbol);
+    console.log(`++ UPDATES PRICES ${JSON.stringify(coinbaseSymbols)}`);
+
+    return [shortfallEth, maxBorrowedEthEntry, maxSuppliedEthEntry, coinbaseEntries];
+};
+
+const calculateLiquidationRevenue = (maxBorrowedEthEntry, maxSuppliedEthEntry) => {
+    let ethToken = tokens.TokenFactory.getEthToken();
+
+    // Pb = price borrow, Ps = price supplied, R = repay amount, Bx = balance
+    //
+    // C = 1.05 * Pb / Ps
+    // R <= Bs / C
+    // R <= Bb / 2
+    // 
+    // R = min(Bs / C, Bb / 2)
+
+    let maxBorrowedEthMarket = maxBorrowedEthEntry.account;
+    let maxSuppliedEthMarket = maxSuppliedEthEntry.account;
+
+    let borrowedMarketData = maxBorrowedEthEntry.market;
+    let suppliedMarketData = maxSuppliedEthEntry.market;
+
+    let priceSupplied = maxSuppliedEthEntry.chosenPrice;
+    let priceBorrowed = maxBorrowedEthEntry.chosenPrice;
+
+    // underlying balance
+    let balanceSupplied = maxSuppliedEthMarket.tokens // no collateral factor for repay calc
+        .mul(suppliedMarketData.getExchangeRate())
+        .div(constants.TEN.pow(18)); // supplied underlying
+
+    let repaySupply = balanceSupplied
+        .mul(EXPONENT).div(LIQUIDATION_INCENTIVE_MANTISSA) // scale by incentive
+        .mul(priceSupplied).div(constants.TEN.pow(18 - (ethToken.decimals - suppliedMarketData.underlyingToken.decimals))) // supplied to eth
+        .mul(EXPONENT).div(priceBorrowed); // eth to borrowed
+
+    let balanceBorrowed = maxBorrowedEthMarket.borrows;
+
+    let repayBorrow = balanceBorrowed.mul(CLOSE_FACTOR_MANTISSA).div(EXPONENT);
+
+    const repaySupplyWasLarger = repaySupply.gt(repayBorrow);
+    let repayAmount = repaySupplyWasLarger ? repayBorrow : repaySupply; // borrowed underlying
+    // Since we are not accouting for interest, use 90% of the repay amount to avoid over-seizing
+    repayAmount = repayAmount.mul(90).div(100); // TODO revisit
+
+    // Calculate the seize amount
+    let repayAmountEth = repayAmount.mul(priceBorrowed).div(constants.TEN.pow(borrowedMarketData.underlyingToken.decimals));
+
+    let seizeAmountEth = repayAmountEth.mul(LIQUIDATION_INCENTIVE_MANTISSA).div(EXPONENT);
+
+    let seizeAmount = seizeAmountEth.mul(constants.TEN.pow(suppliedMarketData.underlyingToken.decimals)).div(priceSupplied);
+
+    let consoleLine = `++ LIQUIDATE ${borrowedMarketData.underlyingToken.formatAmount(repayAmount)} ${borrowedMarketData.underlyingToken.symbol} `;
+    console.log(consoleLine + `=> SEIZE ${suppliedMarketData.underlyingToken.formatAmount(seizeAmount)} ${suppliedMarketData.underlyingToken.symbol}`);
+
+    // Profit before gas costs
+    let revenue = seizeAmountEth.sub(repayAmountEth);
+    console.log(`++ REVENUE  ${ethToken.formatAmount(revenue)} USD`);
+
+    return [revenue, repayAmount, seizeAmount];
+};
+
 const doLiquidation = () => {
     let accounts = accountsGlobal;
     let markets = marketsGlobal;
@@ -256,225 +450,57 @@ const doLiquidation = () => {
             continue; // Prevent double tap
         }
 
-        let accountConsoleLines = [`LIQUIDATION CANDIDATE ${account.address}`];
+        let [shortfallEth, maxBorrowedEthEntry, maxSuppliedEthEntry, coinbaseEntries] = calculateAccountShortfall(account);
 
-        let totalBorrowedEth = constants.ZERO;
-        let totalSuppliedEth = constants.ZERO;
-
-        let borrowedMarkets = [];
-        let suppliedMarkets = [];
-
-        for (let [marketAddress, accountMarket] of Object.entries(account)) {
-            if (marketAddress === 'address' || marketAddress === 'liquidated') {
-                continue; // TODO fix hack
-            }
-
-            let marketData = markets[marketAddress]._data;
-
-            // coinbase doesn't have USDC price :okay:
-            let coinbasePrice = coinbasePricesGlobal[marketData.underlyingToken.symbol]
-                ? coinbasePricesGlobal[marketData.underlyingToken.symbol].normalizedPrice
-                : null;
-
-            let suppliedUnderlying = accountMarket.tokens
-                .mul(marketData.getExchangeRate()).div(EXPONENT);
-
-            let borrowedUnderlying = accountMarket.borrows;
-
-            let useCoinBasePrice = false;
-            if (coinbasePrice !== null) {
-                if (borrowedUnderlying.gt(suppliedUnderlying) && coinbasePrice.gt(marketData.underlyingPrice)) {
-                    useCoinBasePrice = true;
-                }
-
-                if (suppliedUnderlying.gt(borrowedUnderlying) && marketData.underlyingPrice.gt(coinbasePrice)) {
-                    useCoinBasePrice = true;
-                }
-            }
-
-            let priceForCalculation = useCoinBasePrice ? coinbasePrice : marketData.underlyingPrice;
-
-            let marketSuppliedEth = suppliedUnderlying
-                .mul(marketData.collateralFactor).div(EXPONENT)
-                .mul(priceForCalculation).div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
-
-            let marketBorrowedEth = borrowedUnderlying
-                .mul(priceForCalculation)
-                .div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
-
-            let exchRateFmt = marketData.getExchangeRate() / 10**(18 + (marketData.underlyingToken.decimals - marketData.token.decimals));
-            accountConsoleLines.push(`++ ${marketData.underlyingToken.formatAmount(borrowedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketBorrowedEth)} USD borrowed`);
-            accountConsoleLines.push(`++    ${marketData.token.formatAmount(accountMarket.tokens)} ${marketData.token.symbol} @${exchRateFmt} => ${marketData.underlyingToken.formatAmount(suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketSuppliedEth)} USD supplied @(${ethToken.formatAmount(marketData.collateralFactor)})`);
-
-            totalBorrowedEth = totalBorrowedEth.add(marketBorrowedEth);
-            totalSuppliedEth = totalSuppliedEth.add(marketSuppliedEth);
-
-            // use this to keep track of shortfall for sort
-
-            borrowedMarkets.push({
-                account: accountMarket,
-                ethAmount: marketBorrowedEth,
-                market: marketData,
-                useCoinBasePrice,
-                chosenPrice: priceForCalculation,
-            });
-
-            suppliedMarkets.push({
-                account: accountMarket,
-                ethAmount: marketSuppliedEth,
-                market: marketData,
-                useCoinBasePrice,
-                chosenPrice: priceForCalculation,
-            });
-        }
-
-        let shortfallEth = totalBorrowedEth.sub(totalSuppliedEth);
-
-        if (shortfallEth.lte(0)) {
-            // Account not in shortfall
+        if (shortfallEth.eq(constants.ZERO)) {
             continue;
         }
 
-        // TODO next we can prune for where we dont need to post coinbase price
-
-        // sort so largest is in front by ethAmount
-        borrowedMarkets.sort((a, b) => { return a.ethAmount.sub(b.ethAmount).lt(0) ? 1 : -1; });
-        suppliedMarkets.sort((a, b) => { return a.ethAmount.sub(b.ethAmount).lt(0) ? 1 : -1; });
-
-        let maxBorrowedEthEntry = borrowedMarkets[0];
-        let maxSuppliedEthEntry = suppliedMarkets[0];
-
-        // Same token can only be liquidated for v2 erc20 (DAI, USDT)
-        if (maxBorrowedEthEntry.market === maxSuppliedEthEntry.market) {
-            if (!(maxBorrowedEthEntry.market.underlyingToken.symbol in ['DAI', 'USDT'])) {
-                if (borrowedMarkets.length == 1 || suppliedMarkets.length == 1) {
-                    continue; // Only one entered market
-                }
-
-                // Choose the largest market by eth amount
-                if (borrowedMarkets[1].ethAmount.gt(suppliedMarkets[1].ethAmount)) {
-                    maxBorrowedEthEntry = borrowedMarkets[1];
-                } else {
-                    maxSuppliedEthEntry = suppliedMarkets[1];
-                }
-            }
-        }
-
-        // The account is subject to liquidation, log
-        for (let line of accountConsoleLines) {
-            console.log(line);
-        }
-
-        console.log('++');
-        console.log(`++ TOTAL ${ethToken.formatAmount(totalBorrowedEth)} USD borrowed / ${ethToken.formatAmount(totalSuppliedEth)} USD supplied`);
-        console.log(`++ SHORTFALL ${ethToken.formatAmount(shortfallEth)}`);
-
-        // Pb = price borrow, Ps = price supplied, R = repay amount, Bx = balance
-        //
-        // C = 1.05 * Pb / Ps
-        // R <= Bs / C
-        // R <= Bb / 2
-        // 
-        // R = min(Bs / C, Bb / 2)
-
-        let maxBorrowedEthMarket = maxBorrowedEthEntry.account;
-        let maxSuppliedEthMarket = maxSuppliedEthEntry.account;
+        let [revenue, repayAmount, seizeAmount] = calculateLiquidationRevenue(maxBorrowedEthEntry, maxSuppliedEthEntry);
 
         let borrowedMarketData = maxBorrowedEthEntry.market;
         let suppliedMarketData = maxSuppliedEthEntry.market;
 
-        let priceSupplied = maxSuppliedEthEntry.chosenPrice;
-        let priceBorrowed = maxBorrowedEthEntry.chosenPrice;
-
-        let coinbaseEntries = [];
-
-        for (let i = 0; i < borrowedMarkets.length; i++) {
-            if (borrowedMarkets[i].useCoinBasePrice) {
-                let coinbaseEntry = coinbasePricesGlobal[borrowedMarkets[i].market.underlyingToken.symbol];
-
-                coinbaseEntries.push({
-                    message: coinbaseEntry.message,
-                    signature: coinbaseEntry.signature,
-                    symbol: coinbaseEntry.rawSymbol
-                });
-            }
-        }
-
-        let coinbaseSymbols = coinbaseEntries.map(({symbol}) => symbol);
-        console.log(`++ UPDATES PRICES ${JSON.stringify(coinbaseSymbols)}`);
-
-        // underlying balance
-        let balanceSupplied = maxSuppliedEthMarket.tokens // no collateral factor for repay calc
-            .mul(suppliedMarketData.getExchangeRate())
-            .div(constants.TEN.pow(18)); // supplied underlying
-
-        let repaySupply = balanceSupplied
-            .mul(EXPONENT).div(LIQUIDATION_INCENTIVE_MANTISSA) // scale by incentive
-            .mul(priceSupplied).div(constants.TEN.pow(18 - (ethToken.decimals - suppliedMarketData.underlyingToken.decimals))) // supplied to eth
-            .mul(EXPONENT).div(priceBorrowed); // eth to borrowed
-
-        let balanceBorrowed = maxBorrowedEthMarket.borrows;
-
-        let repayBorrow = balanceBorrowed.mul(CLOSE_FACTOR_MANTISSA).div(EXPONENT);
-
-        const repaySupplyWasLarger = repaySupply.gt(repayBorrow);
-        let repayAmount = repaySupplyWasLarger ? repayBorrow : repaySupply; // borrowed underlying
-        // Since we are not accouting for interest, use 90% of the repay amount to avoid over-seizing
-        repayAmount = repayAmount.mul(90).div(100);
-
-
-        // Calculate the seize amount
-        let repayAmountEth = repayAmount.mul(priceBorrowed).div(constants.TEN.pow(borrowedMarketData.underlyingToken.decimals));
-
-        let seizeAmountEth = repayAmountEth.mul(LIQUIDATION_INCENTIVE_MANTISSA).div(EXPONENT);
-
-        let seizeAmount = seizeAmountEth.mul(constants.TEN.pow(suppliedMarketData.underlyingToken.decimals)).div(priceSupplied);
-
-        let consoleLine = `++ LIQUIDATE ${borrowedMarketData.underlyingToken.formatAmount(repayAmount)} ${borrowedMarketData.underlyingToken.symbol} `;
-        console.log(consoleLine + `=> SEIZE ${suppliedMarketData.underlyingToken.formatAmount(seizeAmount)} ${suppliedMarketData.underlyingToken.symbol}`);
-
-        // Profit before gas costs
-        let revenue = seizeAmountEth.sub(repayAmountEth);
-        console.log(`++ REVENUE  ${ethToken.formatAmount(revenue)} USD`);
-
         // Do we have a balance to repay, otherwise check uniswap for flash loan availability/liquidity
-        let liquidatorLiteBalance = liquidatorLiteTokenBalancesGlobal[borrowedMarketData.underlyingToken.address];
         let useLiteContract = true;
+        let liquidatorLiteBalance = liquidatorLiteTokenBalancesGlobal[borrowedMarketData.underlyingToken.address];
+        liquidatorLiteBalance = liquidatorLiteBalance ? liquidatorLiteBalance : constants.ZERO;
         if (!(liquidatorLiteBalance.gte(repayAmount))) {
             useLiteContract = false;
             if (!checkUniswapLiquidity(borrowedMarketData, suppliedMarketData, repayAmount, seizeAmount)) {
                 continue;
             }
-            console.log(`++ USING FLASH LOAN CONTRACT`);
+            console.log('++ USING FLASH LOAN CONTRACT');
         } else {
-            console.log(`++ USING LITE BALANCE`);
+            console.log('++ USING LITE CONTRACT BALANCE');
         }
 
         // Calculate gas costs
         let ethPrice = markets[CETH_ADDRESS]._data.underlyingPrice; 
-        let liquidationGasCostUSD = useLiteContract ? liquidationLiteGasCost.mul(ethPrice).div(EXPONENT) : liquidationGasCost.mul(ethPrice).div(EXPONENT);
+        let gasCost = useLiteContract ? liquidationLiteGasCost : liquidationGasCost;
+        let liquidationGasCostUSD = gasCost.mul(ethPrice).div(EXPONENT);
         let gasLineColor = liquidationGasCost.gt(operatingAccountBalanceGlobal) ? constants.CONSOLE_RED : constants.CONSOLE_DEFAULT;
-        console.log(gasLineColor, `++ GAS COST ${ethToken.formatAmount(liquidationGasCostUSD)} USD / ${ethers.utils.formatEther(liquidationGasCost)} ETH (${LIQUIDATE_GAS_ESTIMATE} @ ${ethers.utils.formatUnits(gasPriceGlobal, 'gwei')} gwei) (${ethers.utils.formatEther(operatingAccountBalanceGlobal)} avail.)`);
+        console.log(gasLineColor, `++ GAS COST ${ethToken.formatAmount(liquidationGasCostUSD)} USD / ${ethers.utils.formatEther(gasCost)} ETH (${LIQUIDATE_GAS_ESTIMATE} @ ${ethers.utils.formatUnits(gasPriceGlobal, 'gwei')} gwei) (${ethers.utils.formatEther(operatingAccountBalanceGlobal)} avail.)`);
 
         // Calculate profit
         let profit = revenue.sub(liquidationGasCostUSD);
         let profitColor = profit.gt(0) ? constants.CONSOLE_GREEN : constants.CONSOLE_RED;
         console.log(profitColor, `++ PROFIT ${ethToken.formatAmount(profit)} USD`);
 
-
-        if (profit.gt(0)) {
-            liquidationCandidates.push({
-                accountAddress: account.address,
-                borrowedMarketData,
-                suppliedMarketData,
-                repayAmount,
-                seizeAmount,
-                shortfallEth,
-                repaySupplyWasLarger,
-                coinbaseEntries,
-                profit
-            });
+        if (profit.lte(0)) {
+            continue;
         }
+
+        liquidationCandidates.push({
+            accountAddress: account.address,
+            borrowedMarketData,
+            suppliedMarketData,
+            repayAmount,
+            coinbaseEntries,
+            profit,
+            useLiteContract,
+            gasCost
+        });
 
         // End of account
         console.log('');
@@ -485,17 +511,17 @@ const doLiquidation = () => {
         return;
     }
 
-    if (liquidationGasCost.gt(operatingAccountBalanceGlobal)) {
-        console.log(constants.CONSOLE_RED, 'INSUFFICIENT GAS');
-        return;
-    }
-
     liquidationCandidates.sort((a, b) => {
         // sort by profit descending
         return a.profit.sub(b.profit).lt(0) ? 1 : -1;
     });
 
     let topCandidate = liquidationCandidates[0];
+
+    if (topCandidate.gasCost.gt(operatingAccountBalanceGlobal)) {
+        console.log(constants.CONSOLE_RED, 'INSUFFICIENT GAS');
+        return;
+    }
 
     console.log(constants.CONSOLE_GREEN, `LIQUIDATING ACCOUNT ${topCandidate.accountAddress}`);
 
@@ -964,10 +990,10 @@ const getLiquidatorWrapper = async (operatingAccount) => {
     return liquidatorWrapperContractGlobal;
 };
 
-const getDeployedContract = async (contractName, signer) => {
+const getDeployedContract = async (contractName, address, signer) => {
     const deployment = await deployments.get(contractName);
 
-    const contract = await ethers.getContractAt(contractName, liqWrapperDeployment.address, operatingAccount);
+    const contract = await ethers.getContractAt(contractName, address, signer);
 
     console.log(`CONTRACT ${contractName} DEPLOYED @ ${contract.address}`);
 
@@ -983,7 +1009,7 @@ const getLiquidatorLite = async (operatingAccount) => {
     liquidatorLiteContractGlobal = liquidatorLiteContract;
 
     return liquidatorLiteContract;
-}
+};
 
 const getUniswapFactory = async () => {
     uniswapFactoryContractGlobal = await ethers.getContractAt('IUniswapV2Factory', UNISWAP_FACTORY_ADDRESS);
@@ -1006,7 +1032,7 @@ const updateGasPrice = async () => {
 
             console.log(`GAS RESULT (provider) ${ethers.utils.formatUnits(gasPriceGlobal, 'gwei')}`);
         } catch (err) {
-            console.log('FAILED TO UPDATE GAS PRICE')
+            console.log('FAILED TO UPDATE GAS PRICE');
         }
     }
 
@@ -1023,8 +1049,7 @@ const updateGasPrice = async () => {
             `Operator balance insuffucient for gas! bal. ${operatorBalanceFmt} < ${gasCostFmt} ETH (@ ${gasPriceFmt} gwei)`);
     }
 
-    let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
-    task.then(() => updateGasPrice());
+    setTimeout(updateGasPrice, 30 * 1000);
 };
 
 const getOperatingAccount = async () => {
@@ -1053,8 +1078,7 @@ const updateUniswapPairs = async () => {
         console.log(err);
     }
 
-    let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
-    task.then(() => updateUniswapPairs());
+    setTimeout(updateUniswapPairs, 30 * 1000));
 };
 
 const loadUniswapPairs = async (tokens) => {
@@ -1096,11 +1120,12 @@ const loadUniswapPairs = async (tokens) => {
         }
     }
 
-    let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
-    task.then(() => updateUniswapPairs());
+    setTimeout(updateUniswapPairs, 30 * 1000));
 };
 
-const updateAccountBalance = async (operatingAddress) => {
+const updateAccountBalance = async () => {
+    let operatingAddress = operatingAccountGlobal.address;
+
     try {
         let operatorBalance = await providerGlobal.getBalance(operatingAddress);
 
@@ -1123,8 +1148,7 @@ const updateAccountBalance = async (operatingAddress) => {
         console.log('FAILED TO UPDATE ACCOUNT BALANCE');
         console.log(err);
     } finally {
-        let task = new Promise(resolve => setTimeout(resolve, 30 * 1000));
-        task.then(() => updateAccountBalance(operatingAddress));
+        setTimeout(updateAccountBalance, 30 * 1000));
     }
 };
 
@@ -1204,8 +1228,7 @@ const updateExternalPrices = async () => {
         console.log('NO PRICE UPDATES');
     }
     
-    let task = new Promise(resolve => setTimeout(resolve, 3 * 1000));
-    task.then(() => updateExternalPrices());
+    setTimeout(updateExternalPrices, 3 * 1000));
 };
 
 const queryEvents = async (comptrollerContract, uniswapOracle, lastBlock, blockNumber) => {
@@ -1347,7 +1370,7 @@ const run = async () => {
 
     let liquidatorWrapper = await getLiquidatorWrapper(operatingAccount);
 
-    let liquidatorLite = await getLiquidatorLite(operatingAccount);
+    //let liquidatorLite = await getLiquidatorLite(operatingAccount);
 
     await tokens.TokenFactory.init();
 
