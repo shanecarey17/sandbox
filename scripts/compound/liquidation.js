@@ -245,90 +245,110 @@ const calculateAccountShortfall = (account) => {
 
     let errRet = [constants.ZERO, null, null, null];
 
-    let accountConsoleLines = [`LIQUIDATION CANDIDATE ${account.address}`];
-
-    let totalBorrowedEth = constants.ZERO;
-    let totalSuppliedEth = constants.ZERO;
-
-    let borrowedMarkets = [];
-    let suppliedMarkets = [];
+    let accountMarketData = [];
 
     for (let [marketAddress, accountMarket] of Object.entries(account)) {
         if (marketAddress === 'address' || marketAddress === 'liquidated') {
             continue; // TODO fix hack
         }
 
+        // Calculate the borrowed/supplied for this market/account
         let marketData = marketsGlobal[marketAddress]._data;
-
-        // coinbase doesn't have USDC price :okay:
-        let coinbasePrice = coinbasePricesGlobal[marketData.underlyingToken.symbol]
-            ? coinbasePricesGlobal[marketData.underlyingToken.symbol].normalizedPrice
-            : null;
 
         let suppliedUnderlying = accountMarket.tokens
             .mul(marketData.getExchangeRate()).div(EXPONENT);
 
         let borrowedUnderlying = accountMarket.borrows;
 
-        let useCoinBasePrice = false;
-        if (coinbasePrice !== null) {
-            if (borrowedUnderlying.gt(suppliedUnderlying) && coinbasePrice.gt(marketData.underlyingPrice)) {
-                useCoinBasePrice = true;
-            }
-
-            if (suppliedUnderlying.gt(borrowedUnderlying) && marketData.underlyingPrice.gt(coinbasePrice)) {
-                useCoinBasePrice = true;
-            }
-        }
-
-        let priceForCalculation = useCoinBasePrice ? coinbasePrice : marketData.underlyingPrice;
-
         let marketSuppliedEth = suppliedUnderlying
             .mul(marketData.collateralFactor).div(EXPONENT)
-            .mul(priceForCalculation).div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
+            .mul(marketData.underlyingPrice).div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
 
         let marketBorrowedEth = borrowedUnderlying
-            .mul(priceForCalculation)
-            .div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
+            .mul(marketData.underlyingPrice).div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
 
-        let exchRateFmt = marketData.getExchangeRate() / 10**(18 + (marketData.underlyingToken.decimals - marketData.token.decimals));
-        accountConsoleLines.push(`++ ${marketData.underlyingToken.formatAmount(borrowedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketBorrowedEth)} USD borrowed`);
-        accountConsoleLines.push(`++    ${marketData.token.formatAmount(accountMarket.tokens)} ${marketData.token.symbol} @${exchRateFmt} => ${marketData.underlyingToken.formatAmount(suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(marketSuppliedEth)} USD supplied @(${ethToken.formatAmount(marketData.collateralFactor)})`);
+        // Calculate for updated coinbase price
+        let marketSuppliedEthUpdatedPrice = marketSuppliedEth;
+        let marketBorrowedEthUpdatedPrice = marketBorrowedEth;
 
-        totalBorrowedEth = totalBorrowedEth.add(marketBorrowedEth);
-        totalSuppliedEth = totalSuppliedEth.add(marketSuppliedEth);
+        let coinbasePrice = coinbasePricesGlobal[marketData.underlyingToken.symbol]
+            ? coinbasePricesGlobal[marketData.underlyingToken.symbol].normalizedPrice
+            : null; // coinbase doesn't have USDC price :okay:
 
-        // use this to keep track of shortfall for sort
+        if (coinbasePrice !== null) {
+            marketSuppliedEthUpdatedPrice = suppliedUnderlying
+                .mul(marketData.collateralFactor).div(EXPONENT)
+                .mul(coinbasePrice).div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
 
-        borrowedMarkets.push({
+            marketBorrowedEthUpdatedPrice = borrowedUnderlying
+                .mul(coinbasePrice).div(constants.TEN.pow(18 - (ethToken.decimals - marketData.underlyingToken.decimals)));
+        }
+
+        // Add to account markets data
+        accountMarketData.push({
             account: accountMarket,
-            ethAmount: marketBorrowedEth,
             market: marketData,
-            useCoinBasePrice,
-            chosenPrice: priceForCalculation,
-        });
-
-        suppliedMarkets.push({
-            account: accountMarket,
-            ethAmount: marketSuppliedEth,
-            market: marketData,
-            useCoinBasePrice,
-            chosenPrice: priceForCalculation,
+            borrowedUnderlying,
+            suppliedUnderlying,
+            marketBorrowedEth,
+            marketBorrowedEthUpdatedPrice,
+            marketSuppliedEth,
+            marketSuppliedEthUpdatedPrice,
+            underlyingPrice: marketData.underlyingPrice,
+            coinbasePrice
         });
     }
 
-    let shortfallEth = totalBorrowedEth.sub(totalSuppliedEth);
+    // Maximize shortfall for account, if < 0 account is safe
+    let accountShortfall = constants.ZERO;
+    for (let data of accountMarketData) {
+        let marketShortfallEth = data.marketBorrowedEth.sub(data.marketSuppliedEth);
+        let marketShortfallEthUpdatedPrice = data.marketBorrowedEthUpdatedPrice.sub(data.marketSuppliedEthUpdatedPrice);
 
-    if (shortfallEth.lte(0)) {
-        // Account not in shortfall
+        if (marketShortfallEthUpdatedPrice.gt(marketShortfallEth)) {
+            data.shortfall = marketShortfallEthUpdatedPrice;
+            data.useCoinbasePrice = true;
+            data.chosenPrice = data.coinbasePrice;
+        } else {
+            data.shortfall = marketShortfallEth;
+            data.useCoinbasePrice = false;
+            data.chosenPrice = data.underlyingPrice;
+        }
+
+        accountShortfall = accountShortfall.add(data.shortfall);
+    }
+
+    if (accountShortfall.lt(0)) {
         return errRet;
     }
 
-    // TODO next we can prune for where we dont need to post coinbase price
+    // Prune the unnecessary price updates
+    accountMarketData = accountMarketData.sort((a, b) => a.shortfall.sub(b.shortfall).gt(0) ? 1 : -1); // sort by shortfall asc
 
+    for (let data of accountMarketData) {
+        if (!data.useCoinbasePrice) {
+            continue;
+        }
+
+        // if we dont update the price for this asset, are we still in shortfall?
+        let newShortfall = accountShortfall.sub(data.marketShortfallEthUpdatedPrice).add(data.marketShortfallEth);
+        if (newShortfall.lte(0)) {
+            break;
+        }
+
+        // actually, dont update the price for this asset
+        data.useCoinbasePrice = false;
+        data.shortfall = data.marketShortfallEth;
+        data.chosenPrice = data.underlyingPrice;
+
+        accountShortfall = newShortfall;
+    }
+
+    // Select the best markets to do liquidation across
+    // TODO this should use the chosen ethamount not non-priceupdate by default
     // sort so largest is in front by ethAmount
-    borrowedMarkets.sort((a, b) => { return a.ethAmount.sub(b.ethAmount).lt(0) ? 1 : -1; });
-    suppliedMarkets.sort((a, b) => { return a.ethAmount.sub(b.ethAmount).lt(0) ? 1 : -1; });
+    let borrowedMarkets = accountMarketData.sort((a, b) => { return a.marketBorrowedEth.sub(b.marketBorrowedEth).lt(0) ? 1 : -1; });
+    let suppliedMarkets = accountMarketData.sort((a, b) => { return a.marketSuppliedEth.sub(b.marketSuppliedEth).lt(0) ? 1 : -1; });
 
     let maxBorrowedEthEntry = borrowedMarkets[0];
     let maxSuppliedEthEntry = suppliedMarkets[0];
@@ -349,20 +369,35 @@ const calculateAccountShortfall = (account) => {
         }
     }
 
-    // The account is subject to liquidation, log
-    for (let line of accountConsoleLines) {
-        console.log(line);
+    // The account is subject to liquidation, log info
+    console.log(`LIQUIDATION CANDIDATE ${account.address}`);
+
+    let totalBorrowedEth = constants.ZERO;
+    let totalSuppliedEth = constants.ZERO;
+
+    for (let data of accountMarketData) {
+        let marketData = data.market;
+
+        console.log(`++ ${marketData.underlyingToken.formatAmount(data.borrowedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(data.marketBorrowedEth)} USD borrowed`);
+
+        let exchRateFmt = marketData.getExchangeRate() / 10**(18 + (marketData.underlyingToken.decimals - marketData.token.decimals));
+        console.log(`++    ${marketData.token.formatAmount(data.accountMarket.tokens)} ${marketData.token.symbol} @${exchRateFmt} => ${marketData.underlyingToken.formatAmount(data.suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(data.marketSuppliedEth)} USD supplied @(${ethToken.formatAmount(marketData.collateralFactor)})`);
+
+        totalBorrowedEth = totalBorrowedEth.add(data.marketBorrowedEth);
+        totalSuppliedEth = totalSuppliedEth.add(data.marketSuppliedEth);
     }
 
     console.log('++');
     console.log(`++ TOTAL ${ethToken.formatAmount(totalBorrowedEth)} USD borrowed / ${ethToken.formatAmount(totalSuppliedEth)} USD supplied`);
-    console.log(`++ SHORTFALL ${ethToken.formatAmount(shortfallEth)}`);
+    console.log(`++ SHORTFALL ${ethToken.formatAmount(accountShortfall)}`);
 
+    // Collect the coinbase data for price updates
     let coinbaseEntries = [];
+    for (let i = 0; i < accountMarketData.length; i++) {
+        let data = accountMarketData[i];
 
-    for (let i = 0; i < borrowedMarkets.length; i++) {
-        if (borrowedMarkets[i].useCoinBasePrice) {
-            let coinbaseEntry = coinbasePricesGlobal[borrowedMarkets[i].market.underlyingToken.symbol];
+        if (data.useCoinBasePrice) {
+            let coinbaseEntry = coinbasePricesGlobal[data.market.underlyingToken.symbol];
 
             coinbaseEntries.push({
                 message: coinbaseEntry.message,
@@ -373,9 +408,11 @@ const calculateAccountShortfall = (account) => {
     }
 
     let coinbaseSymbols = coinbaseEntries.map(({symbol}) => symbol);
-    console.log(`++ UPDATES PRICES ${JSON.stringify(coinbaseSymbols)}`);
+    if (coinbaseSymbols.length > 0) {
+        console.log(`++ UPDATES PRICES ${JSON.stringify(coinbaseSymbols)}`);
+    }
 
-    return [shortfallEth, maxBorrowedEthEntry, maxSuppliedEthEntry, coinbaseEntries];
+    return [accountShortfall, maxBorrowedEthEntry, maxSuppliedEthEntry, coinbaseEntries];
 };
 
 const calculateLiquidationRevenue = (maxBorrowedEthEntry, maxSuppliedEthEntry) => {
@@ -1078,7 +1115,7 @@ const updateUniswapPairs = async () => {
         console.log(err);
     }
 
-    setTimeout(updateUniswapPairs, 30 * 1000));
+    setTimeout(updateUniswapPairs, 30 * 1000);
 };
 
 const loadUniswapPairs = async (tokens) => {
@@ -1120,7 +1157,7 @@ const loadUniswapPairs = async (tokens) => {
         }
     }
 
-    setTimeout(updateUniswapPairs, 30 * 1000));
+    setTimeout(updateUniswapPairs, 30 * 1000);
 };
 
 const updateAccountBalance = async () => {
@@ -1148,7 +1185,7 @@ const updateAccountBalance = async () => {
         console.log('FAILED TO UPDATE ACCOUNT BALANCE');
         console.log(err);
     } finally {
-        setTimeout(updateAccountBalance, 30 * 1000));
+        setTimeout(updateAccountBalance, 30 * 1000);
     }
 };
 
@@ -1228,7 +1265,7 @@ const updateExternalPrices = async () => {
         console.log('NO PRICE UPDATES');
     }
     
-    setTimeout(updateExternalPrices, 3 * 1000));
+    setTimeout(updateExternalPrices, 3 * 1000);
 };
 
 const queryEvents = async (comptrollerContract, uniswapOracle, lastBlock, blockNumber) => {
