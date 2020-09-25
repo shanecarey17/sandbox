@@ -320,7 +320,7 @@ const calculateAccountShortfall = (account) => {
         accountShortfall = accountShortfall.add(data.shortfall);
     }
 
-    if (accountShortfall.lt(0)) {
+    if (accountShortfall.lte(0)) {
         return errRet;
     }
 
@@ -491,7 +491,7 @@ const doLiquidation = () => {
 
         let [shortfallEth, maxBorrowedEthEntry, maxSuppliedEthEntry, coinbaseEntries] = calculateAccountShortfall(account);
 
-        if (shortfallEth.eq(constants.ZERO)) {
+        if (shortfallEth.lte(constants.ZERO)) {
             continue;
         }
 
@@ -504,14 +504,15 @@ const doLiquidation = () => {
         let useLiteContract = true;
         let liquidatorLiteBalance = liquidatorLiteTokenBalancesGlobal[borrowedMarketData.underlyingToken.address];
         liquidatorLiteBalance = liquidatorLiteBalance ? liquidatorLiteBalance : constants.ZERO;
-        if (!(liquidatorLiteBalance.gte(repayAmount))) {
+        if (coinbaseEntries.length == 0 && liquidatorLiteBalance.gte(repayAmount)) {
+            let balanceFmt = borrowedMarketData.underlyingToken.formatAmount(liquidatorLiteBalance);
+            console.log(`++ USING LITE CONTRACT BALANCE ${balanceFmt} ${borrowedMarketData.underlyingToken.symbol}`);
+        } else {
             useLiteContract = false;
+            console.log('++ USING FLASH LOAN CONTRACT');
             if (!checkUniswapLiquidity(borrowedMarketData, suppliedMarketData, repayAmount, seizeAmount)) {
                 continue;
             }
-            console.log('++ USING FLASH LOAN CONTRACT');
-        } else {
-            console.log('++ USING LITE CONTRACT BALANCE');
         }
 
         // Calculate gas costs
@@ -890,7 +891,7 @@ const getMarkets = async (comptrollerContract, priceOracleContract, blockNumber)
     return allMarkets;
 };
 
-const fetchAccounts = async (blockNumber) => {
+const fetchAccountsData = async (blockNumber) => {
     let allAccounts = [];
 
     let url = 'https://api.compound.finance/api/v2/account';
@@ -926,16 +927,7 @@ const fetchAccounts = async (blockNumber) => {
     return allAccounts;
 };
 
-const getAccounts = async (markets, blockNumber) => {
-    let allAccounts;
-    try {
-        allAccounts = await fetchAccounts(blockNumber);
-    } catch (err) {
-        console.log(err);
-
-        throw new Error(`Failed to load accounts from compound rest api - ${err}`);
-    }
-
+const populateAccountMarkets = (allAccounts, markets, blockNumber) => {
     // Main accounts object
     // Account address => market address => tracker
     let accountsMap = accountsGlobal;
@@ -1430,11 +1422,14 @@ const run = async () => {
 
     console.log(`STARTING FROM BLOCK NUMBER ${startBlock}`);
 
+    // Load account data from compound, more likely to fail so do this first
+    let accountsData = await fetchAccountsData(blockNumber);
+
     // Load markets from start block
     let markets = await getMarkets(comptrollerContract, uniswapOracle, startBlock);
 
-    // Fetch accounts from REST service
-    let accounts = await getAccounts(markets, startBlock);
+    // Setup accounts with markets
+    populateAccountMarkets(accountsData, markets, startBlock);
 
     // After fetching accounts since rest service fails spuriously
     await loadUniswapPairs(Object.values(markets).map((market) => market._data.underlyingToken));
