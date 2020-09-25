@@ -287,7 +287,9 @@ const calculateAccountShortfall = (account) => {
         // Add to account markets data
         accountMarketData.push({
             account: accountMarket,
+            accountMarket,
             market: marketData,
+            marketData,
             borrowedUnderlying,
             suppliedUnderlying,
             marketBorrowedEth,
@@ -302,15 +304,15 @@ const calculateAccountShortfall = (account) => {
     // Maximize shortfall for account, if < 0 account is safe
     let accountShortfall = constants.ZERO;
     for (let data of accountMarketData) {
-        let marketShortfallEth = data.marketBorrowedEth.sub(data.marketSuppliedEth);
-        let marketShortfallEthUpdatedPrice = data.marketBorrowedEthUpdatedPrice.sub(data.marketSuppliedEthUpdatedPrice);
+        data.marketShortfallEth = data.marketBorrowedEth.sub(data.marketSuppliedEth);
+        data.marketShortfallEthUpdatedPrice = data.marketBorrowedEthUpdatedPrice.sub(data.marketSuppliedEthUpdatedPrice);
 
-        if (marketShortfallEthUpdatedPrice.gt(marketShortfallEth)) {
-            data.shortfall = marketShortfallEthUpdatedPrice;
+        if (data.marketShortfallEthUpdatedPrice.gt(data.marketShortfallEth)) {
+            data.shortfall = data.marketShortfallEthUpdatedPrice;
             data.useCoinbasePrice = true;
             data.chosenPrice = data.coinbasePrice;
         } else {
-            data.shortfall = marketShortfallEth;
+            data.shortfall = data.marketShortfallEth;
             data.useCoinbasePrice = false;
             data.chosenPrice = data.underlyingPrice;
         }
@@ -361,7 +363,7 @@ const calculateAccountShortfall = (account) => {
             }
 
             // Choose the largest market by eth amount
-            if (borrowedMarkets[1].ethAmount.gt(suppliedMarkets[1].ethAmount)) {
+            if (borrowedMarkets[1].marketBorrowedEth.gt(suppliedMarkets[1].marketSuppliedEth)) {
                 maxBorrowedEthEntry = borrowedMarkets[1];
             } else {
                 maxSuppliedEthEntry = suppliedMarkets[1];
