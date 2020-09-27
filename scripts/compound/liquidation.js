@@ -1007,7 +1007,7 @@ const populateAccountMarkets = (allAccounts, markets, blockNumber) => {
             marketTracker.tokens = underlying.parseAmount(acctToken.supply_balance_underlying.value).mul(EXPONENT).div(exchangeRate);
             marketTracker.borrows = underlying.parseAmount(acctToken.borrow_balance_underlying.value);
             marketTracker.borrowIndex = constants.ZERO; // TODO calculate this from interest
-            marketTracker.entered = true;
+            marketTracker.entered = true; // TODO confirm this
         }
 
         // if the account has enough borrowed, track it
@@ -1407,7 +1407,8 @@ const doUpdate = async (lastBlock, provider) => {
 
 const mainLoop = async (startBlock) => {
     let lastBlock = startBlock;
-    let infura_keys = ['24290ba0ddf440c6a12883c527bd874a']; //bre.config.app.infura_keys;
+    //let infura_keys = ['24290ba0ddf440c6a12883c527bd874a'];
+    let infura_keys = process.env.INFURA_PROJECT_KEY ? [process.env.INFURA_PROJECT_KEY] : bre.config.app.infura_keys;
     let infura_index = 0;
     let provider = new ethers.providers.InfuraProvider('mainnet', infura_keys[infura_index]);
 
