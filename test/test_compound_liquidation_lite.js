@@ -10,6 +10,8 @@ const COMPTROLLER_ADDRESS = '0x3d9819210a31b4961b30ef54be2aed79b9c9cd3b';
 
 const UNISWAP_FACTORY = '0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f';
 
+const CHI_ADDRESS = '0x0000000000004946c0e9F43F4Dee607b0eF1fA1c';
+
 const CDAI = '0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643';
 const CETH = '0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5';
 const CUSDC = '0x39aa39c021dfbae8fac545936693ac917d5e7563';
@@ -85,7 +87,7 @@ describe.skip("TestZap", async () => {
     });
 });
 
-describe.skip("Liquidator", async () => {
+describe("LiquidatorLite", async () => {
     let liquidatorContract;
     let comptrollerContract;
     let oracleContract;
@@ -99,9 +101,9 @@ describe.skip("Liquidator", async () => {
         ownerAccountAddress = await ownerAccount.getAddress();
 
         // Deploy liquidator
-        await deployments.fixture('liquidator'); // tag
-        const liqDeployment = await deployments.get("CompoundLiquidator");
-        const liquidator = await ethers.getContractAt("CompoundLiquidator", liqDeployment.address);
+        await deployments.fixture('liquidator_lite'); // tag
+        const liqDeployment = await deployments.get("CompoundLiquidatorLite");
+        const liquidator = await ethers.getContractAt("CompoundLiquidatorLite", liqDeployment.address);
         liquidatorContract = liquidator;
 
         // Get comptroller
@@ -122,12 +124,18 @@ describe.skip("Liquidator", async () => {
             value: ethers2.utils.parseEther('0.1')
         });
 
+        // Give the contract some CHI
+        let chiToken = await ethers.getContractAt("IChiGastoken", CHI_ADDRESS);
+        await chiToken.connect(signers[9]).mint(100);
+        await chiToken.connect(signers[9]).transfer(liquidator.address, 100);
+
         let compAdmin = await ethers.provider.getSigner(COMPTROLLER_ADMIN);
         await comptrollerContract.connect(compAdmin)._setPriceOracle(oracleContract.address);
+        console.log('checking oracle set correctly');
         expect(await comptrollerContract.oracle()).to.equal(oracleContract.address);
     });
 
-    it('DAI-DAI', async () => {
+    it.only('DAI-DAI', async () => {
         let signers = await ethers.getSigners();
         const borrowingAccount = signers[1];
         const borrowAccountAddress = await borrowingAccount.getAddress();
@@ -139,8 +147,14 @@ describe.skip("Liquidator", async () => {
         await oracleContract.setUnderlyingPrice(CDAI, priceOne);
         await oracleContract.setUnderlyingPrice(CUSDC, priceOne.mul(ethers2.BigNumber.from(10).pow(12)));
 
-        expect(await oracleContract.getUnderlyingPrice(CDAI)).to.equal(priceOne);
-        expect(await oracleContract.getUnderlyingPrice(CUSDC)).to.equal(priceOne.mul(ethers2.BigNumber.from(10).pow(12)));
+        console.log('checking oracle dai price set correctly')
+        let oracleCDAIPrice = await oracleContract.getUnderlyingPrice(CDAI);
+        console.log(oracleCDAIPrice.toString());
+        expect(oracleCDAIPrice.toString()).to.equal(priceOne.toString());
+        console.log('checking oracle usdc price set correctly')
+        let oracleUSDCPrice = await oracleContract.getUnderlyingPrice(CUSDC);
+        console.log(oracleUSDCPrice.toString());
+        expect(oracleUSDCPrice.toString()).to.equal(priceOne.mul(ethers2.BigNumber.from(10).pow(12)).toString());
 
         const daiBorrowAmount = ethers2.utils.parseUnits('3');
         const daiWhale = await ethers.provider.getSigner(DAI_WHALE);
@@ -232,6 +246,8 @@ describe.skip("Liquidator", async () => {
 */
         var repayBorrowAmount = ethers2.utils.parseUnits('0.2');
 
+        await dai.connect(daiWhale).transfer(liquidatorContract.address, repayBorrowAmount);
+
         let prevOwnerDaiBalance = await dai.balanceOf(ownerAccountAddress); // second test, residual balance
         console.log(`owner prev dai balance: ${prevOwnerDaiBalance.toString()}`);
 
@@ -240,6 +256,7 @@ describe.skip("Liquidator", async () => {
             CDAI,
             CDAI,
             repayBorrowAmount,
+            14, // gastokens
             {
                 gasLimit: 5 * 10**6, // estimate gas on ganache has bug
             }
