@@ -359,7 +359,7 @@ const calculateAccountShortfall = (account) => {
     }
 
     // Prune the unnecessary price updates in reverse order of their contribution to shortfall
-    accountMarketData = accountMarketData.sort((a, b) => a.shortfall.sub(b.shortfall).gt(0) ? -1 : 1); // sort by shortfall asc
+    accountMarketData = accountMarketData.sort((a, b) => a.shortfall.sub(b.shortfall).gt(0) ? -1 : 1); // asc
 
     for (let data of accountMarketData) {
         if (!data.useCoinbasePrice) {
@@ -383,9 +383,7 @@ const calculateAccountShortfall = (account) => {
     }
 
     // Select the best markets to do liquidation across
-    // TODO this should use the chosen ethamount not non-priceupdate by default
-    // sort so largest is in front by ethAmount
-    let borrowedMarkets = [...accountMarketData].sort((a, b) => { return a.borrowedEth.sub(b.borrowedEth).gt(0) ? -1 : 1; });
+    let borrowedMarkets = [...accountMarketData].sort((a, b) => { return a.borrowedEth.sub(b.borrowedEth).gt(0) ? -1 : 1; }); // desc
     let suppliedMarkets = [...accountMarketData].sort((a, b) => { return a.suppliedEth.sub(b.suppliedEth).gt(0) ? -1 : 1; });
 
     let maxBorrowedEthEntry = borrowedMarkets[0];
@@ -512,7 +510,7 @@ const doLiquidation = () => {
         let suppliedMarketData = maxSuppliedEthEntry.market;
 
         // Do we have a balance to repay, otherwise check uniswap for flash loan availability/liquidity
-        let useLiteContract = true;
+        let useLiteContract = false; // TODO set this back
         let liquidatorLiteBalance = liquidatorLiteTokenBalancesGlobal[borrowedMarketData.underlyingToken.address];
         liquidatorLiteBalance = liquidatorLiteBalance ? liquidatorLiteBalance : constants.ZERO;
         if (coinbaseEntries.length == 0 && liquidatorLiteBalance.gte(repayAmount)) {
@@ -1460,7 +1458,7 @@ const run = async () => {
 
     let liquidatorWrapper = await getLiquidatorWrapper(operatingAccount);
 
-    //let liquidatorLite = await getLiquidatorLite(operatingAccount);
+    //let liquidatorLite = await getLiquidatorLite(operatingAccount); // TODO add this back
 
     await tokens.TokenFactory.init();
 
@@ -1493,7 +1491,7 @@ const run = async () => {
     // After fetching accounts since rest service fails spuriously
     await loadUniswapPairs(Object.values(markets).map((market) => market._data.underlyingToken));
 
-    await updateLiquidatorLiteTokenBalances();
+    //await updateLiquidatorLiteTokenBalances(); // TODO add this back
 
     console.log('INITIALIZED');
 
