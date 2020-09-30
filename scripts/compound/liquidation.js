@@ -252,10 +252,10 @@ const logLiquidationCandidate = (account, accountShortfall, accountMarketData, c
     for (let data of accountMarketData) {
         let marketData = data.marketData;
 
-        console.log(`++ ${marketData.underlyingToken.formatAmount(data.borrowedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(data.marketBorrowedEth)} USD borrowed`);
+        console.log(`++ ${marketData.underlyingToken.formatAmount(data.borrowedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(data.borrowedEth)} USD borrowed`);
 
         let exchRateFmt = marketData.getExchangeRate() / 10**(18 + (marketData.underlyingToken.decimals - marketData.token.decimals));
-        console.log(`++    ${marketData.token.formatAmount(data.accountMarket.tokens)} ${marketData.token.symbol} @${exchRateFmt} => ${marketData.underlyingToken.formatAmount(data.suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(data.marketSuppliedEth)} USD supplied @(${ethToken.formatAmount(marketData.collateralFactor)})`);
+        console.log(`++    ${marketData.token.formatAmount(data.accountMarket.tokens)} ${marketData.token.symbol} @${exchRateFmt} => ${marketData.underlyingToken.formatAmount(data.suppliedUnderlying)} ${marketData.underlyingToken.symbol} / ${ethToken.formatAmount(data.suppliedEth)} USD supplied @(${ethToken.formatAmount(marketData.collateralFactor)})`);
     }
 
     console.log('++');
@@ -367,7 +367,7 @@ const calculateAccountShortfall = (account) => {
         }
 
         // if we dont update the price for this asset, are we still in shortfall?
-        let newShortfall = accountShortfall.sub(data.marketShortfallEthUpdatedPrice).add(data.marketShortfallEth);
+        let newShortfall = accountShortfall.sub(data.shortfall).add(data.marketShortfallEth);
         if (newShortfall.lte(0)) {
             break;
         }
@@ -954,32 +954,67 @@ const getAccount = (accountAddress) => {
     let accountTracker = new (function() { 
         this.liquidated = false;
         this.address = accountAddress;
-        this.markets = {};
+
+        // for each market, default zero initialize the tracker
+        this.markets = Object.fromEntries(
+            Object.values(marketsGlobal).map((market) => {
+                return [market._data.address, {
+                    marketData: market._data,
+                    marketAddress: market._data.address,
+                    tokens: constants.ZERO,
+                    borrows: constants.ZERO,
+                    borrowIndex: constants.ZERO,
+                    entered: false
+                }];
+            })
+        );
 
         this.totalBorrowedEth = () => {
             let totalBorrowedEth = constants.ZERO;
 
             for (let tracker of Object.values(this.markets)) {
-                let marketBorrowedEth = tracker.borrows.mul(tracker.marketData.underlyingPrice)
+                if (!tracker.entered) {
+                    assert(tracker.borrows.eq(constants.ZERO));
+                }
+
+                if (tracker.borrows.eq(constants.ZERO)) {
+                    continue;
+                }
+
+                let borrowBalance = tracker.borrows
+                    .mul(tracker.marketData.borrowIndex).div(EXPONENT)
+                    .mul(EXPONENT).div(tracker.borrowIndex);
+
+                let marketBorrowedEth = borrowBalance.mul(tracker.marketData.underlyingPrice)
                     .div(constants.TEN.pow(18 - (ethToken.decimals - tracker.marketData.underlyingToken.decimals)));
+
                 totalBorrowedEth = totalBorrowedEth.add(marketBorrowedEth);
             }
 
             return totalBorrowedEth;
         };
-    })();
 
-    // for each market, default zero initialize the tracker
-    for (let market of Object.values(marketsGlobal)) {
-        accountTracker.markets[market._data.address] = {
-            marketData: market._data,
-            marketAddress: market._data.address,
-            tokens: constants.ZERO,
-            borrows: constants.ZERO,
-            borrowIndex: constants.ZERO,
-            entered: false
+        this.totalCollateralEth = () => {
+            let totalCollateralEth = constants.ZERO;
+            
+            for (let tracker of Object.values(this.markets)) {
+                if (!tracker.entered) {
+                    continue;
+                }
+
+                let suppliedUnderlying = tracker.tokens
+                    .mul(tracker.marketData.getExchangeRate()).div(EXPONENT);
+
+                let marketSuppliedEth = suppliedUnderlying
+                    .mul(tracker.marketData.collateralFactor).div(EXPONENT)
+                    .mul(tracker.marketData.underlyingPrice).div(constants.TEN.pow(18 - (ethToken.decimals - tracker.marketData.underlyingToken.decimals)));
+
+                totalCollateralEth = totalCollateralEth.add(marketSuppliedEth);
+            }
+
+            return totalCollateralEth;
         };
-    }
+    })();
 
     accountsGlobal[accountAddress] = accountTracker; 
 
@@ -987,10 +1022,14 @@ const getAccount = (accountAddress) => {
 };
 
 const populateAccountMarkets = (allAccounts, markets, blockNumber) => {
+    let ethPrice = marketsGlobal[CETH_ADDRESS]._data.underlyingPrice;
+
     for (let account of allAccounts) {
         let accountAddress = ethers.utils.getAddress(account.address); // checksum case
 
         let accountTracker = getAccount(accountAddress);
+
+        console.dir(account, {depth: null});
 
         // populate market entries from response
         for (let acctToken of account.tokens) {
@@ -1004,10 +1043,21 @@ const populateAccountMarkets = (allAccounts, markets, blockNumber) => {
 
             let marketTracker = accountTracker.markets[marketAddress];
 
+            marketTracker.entered = true; // TODO confirm this
             marketTracker.tokens = underlying.parseAmount(acctToken.supply_balance_underlying.value).mul(EXPONENT).div(exchangeRate);
             marketTracker.borrows = underlying.parseAmount(acctToken.borrow_balance_underlying.value);
-            marketTracker.borrowIndex = constants.ZERO; // TODO calculate this from interest
-            marketTracker.entered = true; // TODO confirm this
+            marketTracker.borrowIndex = constants.ZERO;
+
+            if (marketTracker.borrows.gt(constants.ZERO)) {
+                // borrow_bal = principal * borrowIndex / acctIndex
+                // acctIndex = principal * borrowIndex / borrow_bal
+                let interestAccrued = underlying.parseAmount(acctToken.lifetime_borrow_interest_accrued.value);
+                let borrowBalance = marketTracker.borrows.add(interestAccrued);
+
+                marketTracker.borrowIndex = marketTracker.borrows
+                    .mul(marketData.borrowIndex).div(EXPONENT)
+                    .mul(EXPONENT).div(borrowBalance);
+            }
         }
 
         // if the account has enough borrowed, track it
@@ -1017,6 +1067,21 @@ const populateAccountMarkets = (allAccounts, markets, blockNumber) => {
 
             candidateAccountsGlobal[accountAddress] = totalBorrowedEth; // TODO do we need to store this value?
         }
+
+        let totalCollateralEth = accountTracker.totalCollateralEth();
+
+        // Compound api gives more precision than eth supports...
+        let totalBorrowedEthRef = ethers.utils.parseEther(parseFloat(account.total_borrow_value_in_eth.value).toFixed(18));
+        let totalCollateralEthRef = ethers.utils.parseEther(parseFloat(account.total_collateral_value_in_eth.value).toFixed(18));
+
+        let totalBorrowedUSDRef = totalBorrowedEthRef.mul(ethPrice).div(EXPONENT);
+        let totalCollateralUSDRef = totalCollateralEthRef.mul(ethPrice).div(EXPONENT);
+
+        console.log(`ACCOUNT borrows ${ethers.utils.formatEther(totalBorrowedEth)} vs ${ethers.utils.formatEther(totalBorrowedUSDRef)} ref`);
+        console.log(`ACCOUNT collateral ${ethers.utils.formatEther(totalCollateralEth)} vs ${ethers.utils.formatEther(totalCollateralUSDRef)} ref`);
+
+        assert(totalBorrowedEthRef.eq(totalBorrowedEth));
+        assert(totalCollateralEthRef.eq(totalCollateralEth));
     }
 
     return accountsGlobal;
@@ -1481,7 +1546,15 @@ const run = async () => {
     console.log(`STARTING FROM BLOCK NUMBER ${startBlock}`);
 
     // Load account data from compound, more likely to fail so do this first
-    let accountsData = await fetchAccountsData(blockNumber);
+    let accountsData = null;
+    while (accountsData === null) {
+        try {
+            accountsData = await fetchAccountsData(blockNumber);
+        } catch (err) {
+            console.log(constants.CONSOLE_RED, `FAILED TO LOAD ACCOUNTS - TRYING AGAIN IN 5s`);
+            await new Promise((resolve) => setTimeout(resolve, 5 * 1000));
+        }
+    }
 
     // Load markets from start block
     let markets = await getMarkets(comptrollerContract, uniswapOracle, startBlock);
