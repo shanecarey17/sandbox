@@ -53,6 +53,8 @@ assert(COINBASE_SECRET !== null && COINBASE_SECRET !== undefined);
 
 const BORROW_ETH_THRESHOLD = ethers.utils.parseEther('0.2');
 
+let accountsUpdatedGlobal = {}; // reset in doLiquidation()
+
 let CLOSE_FACTOR_MANTISSA = undefined;
 let LIQUIDATION_INCENTIVE_MANTISSA = undefined;
 
@@ -213,7 +215,6 @@ const liquidateAccount = (account, borrowedMarket, collateralMarket, repayBorrow
             }
         );
     }
-
 
     task.then(async (result) => {
         console.log(`LIQUIDATED ACCOUNT ${account} - RESULT ${JSON.stringify(result)}`);
@@ -490,7 +491,26 @@ const calculateLiquidationRevenue = (maxBorrowedEthEntry, maxSuppliedEthEntry) =
     return [revenue, repayAmount, seizeAmount];
 };
 
+const checkUpdatedAccounts = () => {
+    for (let address of Object.keys(accountsUpdatedGlobal)) {
+        let account = getAccount(address);
+        let totalBorrowedEth = dstAccount.totalBorrowedEth();
+        if (totalBorrowedEth.gte(BORROW_ETH_THRESHOLD)) {
+            candidateAccountsGlobal[dst] = totalBorrowedEth;
+        } else {
+            delete candidateAccountsGlobal[dst];
+        }
+    }
+
+    accountsUpdatedGlobal = {};
+}
+
 const doLiquidation = () => {
+    // Do this here first so we have updated
+    // candidates with complete information because
+    // this function is not called between blocks
+    checkUpdatedAccounts();
+
     let ethToken = tokens.TokenFactory.getEthToken();
 
     const liquidationGasCost = LIQUIDATE_GAS_ESTIMATE.mul(gasPriceGlobal);
@@ -737,6 +757,8 @@ const getMarkets = async (blockNumber) => {
 
                 let minterData = minterAccount.markets[this.address];
                 minterData.tokens = minterData.tokens.add(mintTokens);
+
+                accountsUpdatedGlobal[minter] = true;
             };
 
             this.onRedeem = ({redeemer, redeemAmount, redeemTokens}) => {
@@ -766,6 +788,8 @@ const getMarkets = async (blockNumber) => {
                 let borrowerData = borrowerAccount.markets[this.address];
                 borrowerData.borrows = accountBorrows;
                 borrowerData.borrowIndex = this.borrowIndex;
+
+                accountsUpdatedGlobal[borrower] = true;
             };
 
             this.onRepayBorrow = ({payer, borrower, repayAmount, accountBorrows, totalBorrows}) => {
@@ -783,6 +807,8 @@ const getMarkets = async (blockNumber) => {
 
                 let borrowerData = borrowerAccount.markets[this.address];
                 borrowerData.borrows = accountBorrows;
+
+                accountsUpdatedGlobal[borrower] = true;
             };
 
             this.onLiquidateBorrow = ({liquidator, borrower, repayAmount, cTokenCollateral, seizeTokens}, ev) => {
@@ -806,6 +832,8 @@ const getMarkets = async (blockNumber) => {
                 let borrowerData = borrowerAccount.markets[this.address];
                 borrowerData.borrows = borrowerData.borrows.sub(repayAmount);
 
+                accountsUpdatedGlobal[borrower] = true;
+
                 let seizeAmount = seizeTokens.mul(collateralData.getExchangeRate()).div(EXPONENT);
                 let seizeAmountFmt = collateralData.underlyingToken.formatAmount(seizeAmount);
 
@@ -827,6 +855,7 @@ const getMarkets = async (blockNumber) => {
                     let srcAccount = getAccount(src);
                     let srcData = srcAccount.markets[this.address];
                     srcData.tokens = srcData.tokens.sub(amount);
+                    accountsUpdatedGlobal[src] = true;
                 }
 
                 if (dst == this.address) {
@@ -836,21 +865,13 @@ const getMarkets = async (blockNumber) => {
                     let dstAccount = getAccount(dst);
                     let dstData = dstAccount.markets[this.address];
                     dstData.tokens = dstData.tokens.add(amount);
+                    accountsUpdatedGlobal[dst] = true;
                 }
 
                 let fmtAddr = (addr) => addr == this.address ? 'MARKET' : addr;
 
                 console.log(`[${this.underlyingToken.symbol}] TRANSFER ${fmtAddr(src)} => ${fmtAddr(dst)}
                     ${this.token.formatAmount(amount)} ${this.token.symbol} transferred`);
-
-                /*
-                let totalBorrowedEth = dstAccount.totalBorrowedEth();
-                if (totalBorrowedEth.gte(BORROW_ETH_THRESHOLD)) {
-                    candidateAccountsGlobal[dst] = totalBorrowedEth;
-                } else {
-                    delete candidateAccountsGlobal[dst];
-                }
-                */
             };
 
             this.onReservesReduced = ({admin, amountReduced, newTotalReserves}) => {
@@ -962,10 +983,6 @@ const fetchAccountsDataGraphQL = async (blockNumber) => {
         console.log(`FETCHED ${allAccounts.length} ACCOUNTS`);
 
         skip += pageSize;
-
-        if (skip >= 3000) {
-            break;
-        }
     }
 
     return allAccounts;
