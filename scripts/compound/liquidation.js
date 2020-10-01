@@ -51,7 +51,7 @@ const COINBASE_API_KEY = '9437bb42b52baeec3407dbe344e80f84';
 const COINBASE_SECRET = process.env.COINBASE_SECRET;
 assert(COINBASE_SECRET !== null && COINBASE_SECRET !== undefined);
 
-const BORROW_ETH_THRESHOLD = ethers.utils.parseEther('350'); // Actually USD
+const BORROW_ETH_THRESHOLD = ethers.utils.parseEther('100'); // Actually USD
 
 let accountsUpdatedGlobal = {}; // reset in doLiquidation()
 
