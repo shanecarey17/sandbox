@@ -1574,8 +1574,6 @@ const run = async () => {
 
     //let liquidatorLite = await getLiquidatorLite(operatingAccount); // TODO add this back
 
-    await updateGasPrice();
-
     let comptrollerContract = await getComptroller();
 
     let uniswapOracle = await getUniswapOracle();
@@ -1612,6 +1610,8 @@ const run = async () => {
     await loadUniswapPairs(Object.values(markets).map((market) => market._data.underlyingToken));
 
     //await updateLiquidatorLiteTokenBalances(); // TODO add this back
+
+    await updateGasPrice();
 
     console.log('INITIALIZED');
 
