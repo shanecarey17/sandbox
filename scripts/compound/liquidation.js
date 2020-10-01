@@ -51,7 +51,7 @@ const COINBASE_API_KEY = '9437bb42b52baeec3407dbe344e80f84';
 const COINBASE_SECRET = process.env.COINBASE_SECRET;
 assert(COINBASE_SECRET !== null && COINBASE_SECRET !== undefined);
 
-const BORROW_ETH_THRESHOLD = ethers.utils.parseEther('0.2');
+const BORROW_ETH_THRESHOLD = ethers.utils.parseEther('350'); // Actually USD
 
 let accountsUpdatedGlobal = {}; // reset in doLiquidation()
 
@@ -432,6 +432,16 @@ const calculateAccountShortfall = (account) => {
     // The account is subject to liquidation, log info
     logLiquidationCandidate(account, accountShortfall, accountMarketData, coinbaseEntries);
 
+    if (coinbaseEntries.length == 0) {
+        comptrollerContractGlobal.getAccountLiquidity(account.address).then((result) => {
+            let [_, liquidity, shortfall] = result;
+            if (accountShortfall.eq(shortfall)) {
+                console.log(constants.CONSOLE_RED, `ACCOUNT ${account.address} shortfall ${ethers.utils.formatEther(accountShortfall)} vs actual ${ethers.utils.formatEther(shortfall)}`);
+                throw new Error('account liquidity incorrect');
+            }
+        });
+    }
+
     return [accountShortfall, maxBorrowedEthEntry, maxSuppliedEthEntry, coinbaseEntries];
 };
 
@@ -494,11 +504,11 @@ const calculateLiquidationRevenue = (maxBorrowedEthEntry, maxSuppliedEthEntry) =
 const checkUpdatedAccounts = () => {
     for (let address of Object.keys(accountsUpdatedGlobal)) {
         let account = getAccount(address);
-        let totalBorrowedEth = dstAccount.totalBorrowedEth();
+        let totalBorrowedEth = account.totalBorrowedEth();
         if (totalBorrowedEth.gte(BORROW_ETH_THRESHOLD)) {
-            candidateAccountsGlobal[dst] = totalBorrowedEth;
+            candidateAccountsGlobal[address] = totalBorrowedEth;
         } else {
-            delete candidateAccountsGlobal[dst];
+            delete candidateAccountsGlobal[address];
         }
     }
 
@@ -952,8 +962,21 @@ const fetchAccountsData = async (blockNumber) => {
     return allAccounts;
 };
 
+const getAccountsLimit = () => {
+    let accountsLimitRaw = process.env.ACCOUNTS_LIMIT;
+    
+    if (accountsLimitRaw) {
+        console.log(`ACCOUNTS LIMIT SET ${accountsLimitRaw}`);
+        return Number.parseInt(accountsLimitRaw);
+    }
+
+    return 0;
+};
+
 const fetchAccountsDataGraphQL = async (blockNumber) => {
     let allAccounts = [];
+
+    let accountsLimit = getAccountsLimit();
 
     let pageSize = 1000;
     let skip = 0;
@@ -975,12 +998,15 @@ const fetchAccountsDataGraphQL = async (blockNumber) => {
             allAccounts.push(account);
         }
 
-        // We get pages of 100 accounts
         if (accounts.length == 0) {
             break;
         }
 
         console.log(`FETCHED ${allAccounts.length} ACCOUNTS`);
+
+        if (accountsLimit > 0 && allAccounts.length >= accountsLimit) {
+            break;
+        }
 
         skip += pageSize;
     }
@@ -1097,7 +1123,7 @@ const populateAccountMarkets = (allAccounts, markets, blockNumber) => {
     }
     
     let numCandidates = Object.keys(candidateAccountsGlobal).length;
-    console.log(`ACCOUNTS OVER BORROW THRESHOLD ${ethers.utils.formatEther(BORROW_ETH_THRESHOLD)} ETH: ${numCandidates}`);
+    console.log(`ACCOUNTS OVER BORROW THRESHOLD ${ethers.utils.formatEther(BORROW_ETH_THRESHOLD)} USD: ${numCandidates}`);
 
     return accountsGlobal;
 };
