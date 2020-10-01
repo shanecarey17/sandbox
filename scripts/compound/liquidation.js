@@ -992,6 +992,11 @@ const fetchAccountsDataGraphQL = async (blockNumber) => {
             }
         });
 
+        if (result.data.data === null) {
+            console.dir(result, { depth: null });
+            throw new Error('accounts request failed');
+        }
+
         let accounts = result.data.data.accounts;
 
         for (let account of accounts) {
