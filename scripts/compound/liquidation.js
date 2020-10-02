@@ -77,6 +77,8 @@ let accountsGlobal = {};
 let candidateAccountsGlobal = {};
 let uniswapPairsGlobal = {};
 
+let blockNumberGlobal = constants.ZERO;
+
 let gasPriceGlobal = undefined;
 let requiresAccountBalanceUpdateGlobal = false;
 
@@ -277,12 +279,12 @@ const logLiquidationCandidate = (account, accountShortfall, accountMarketData, c
 };
 
 const validateFlagGlobal = process.env.VALIDATE_SHORTFALL ? true : false;
-const validateAccountShortfall = (accountAddress, accountShortfall) => {
+const validateAccountShortfall = (accountAddress, accountShortfall, blockNumber) => {
     if (!validateFlagGlobal) {
         return;
     }
 
-    comptrollerContractGlobal.getAccountLiquidity(accountAddress).then((result) => {
+    comptrollerContractGlobal.getAccountLiquidity(accountAddress, { blockTag: blockNumber }).then((result) => {
         let [_, liquidity, shortfall] = result;
         if (!accountShortfall.eq(shortfall)) {
             console.log(constants.CONSOLE_RED, `ACCOUNT ${accountAddress} shortfall ${ethers.utils.formatEther(accountShortfall)} vs actual ${ethers.utils.formatEther(shortfall)}`);
@@ -291,7 +293,7 @@ const validateAccountShortfall = (accountAddress, accountShortfall) => {
     });
 };
 
-const calculateAccountShortfall = (account) => {
+const calculateAccountShortfall = (account, blockNumber) => {
     let ethToken = tokens.TokenFactory.getEthToken();
 
     let errRet = [constants.ZERO, null, null, null];
@@ -449,7 +451,7 @@ const calculateAccountShortfall = (account) => {
 
     if (coinbaseEntries.length == 0) {
         // Can only validate against comptroller when no updated prices are used
-        validateAccountShortfall(account.address, accountShortfall);
+        validateAccountShortfall(account.address, accountShortfall, blockNumber);
     }
 
     return [accountShortfall, maxBorrowedEthEntry, maxSuppliedEthEntry, coinbaseEntries];
@@ -525,7 +527,7 @@ const checkUpdatedAccounts = () => {
     accountsUpdatedGlobal = {};
 };
 
-const doLiquidation = () => {
+const doLiquidation = (blockNumber) => {
     // Do this here first so we have updated
     // candidates with complete information because
     // this function is not called between blocks
@@ -545,7 +547,7 @@ const doLiquidation = () => {
             continue; // Prevent double tap
         }
 
-        let [shortfallEth, maxBorrowedEthEntry, maxSuppliedEthEntry, coinbaseEntries] = calculateAccountShortfall(account);
+        let [shortfallEth, maxBorrowedEthEntry, maxSuppliedEthEntry, coinbaseEntries] = calculateAccountShortfall(account, blockNumber);
 
         if (shortfallEth.lte(constants.ZERO)) {
             continue;
@@ -1434,7 +1436,7 @@ const updateExternalPrices = async () => {
     }
 
     if (anyPricesUpdated) {
-        doLiquidation();
+        doLiquidation(blockNumberGlobal);
     } else {
         console.log('NO PRICE UPDATES');
     }
@@ -1545,6 +1547,7 @@ const mainLoop = async (startBlock) => {
         try {
             // only provider calls in here
             [lastBlock, events] = await doUpdate(lastBlock, provider); 
+            blockNumberGlobal = lastBlock;
         } catch (err) {
             console.log(`ERROR WITH PROVIDER ${infura_keys[infura_index]}`);
             console.log(err);
@@ -1566,7 +1569,7 @@ const mainLoop = async (startBlock) => {
         if (events.length > 0) {
             handleEvents(events);
 
-            doLiquidation();
+            doLiquidation(lastBlock);
         }
     }
 };
@@ -1598,6 +1601,7 @@ const run = async () => {
     let blockNumber = await ethers.provider.getBlockNumber();
 
     let startBlock = blockNumber - 25;
+    blockNumberGlobal = startBlock;
 
     console.log(`STARTING FROM BLOCK NUMBER ${startBlock}`);
 
