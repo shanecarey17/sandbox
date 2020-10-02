@@ -1115,7 +1115,7 @@ const getAccount = (accountAddress) => {
 };
 
 const validateAccountTracker = async (accountTracker, blockNumber) => {
-    for (let market of accountTracker.markets) {
+    for (let market of Object.values(accountTracker.markets)) {
         let marketData = market.marketData;
 
         let snapshot = await marketData.contract.getAccountSnapshot(accountTracker.address, { blockTag: blockNumber });
@@ -1126,7 +1126,7 @@ const validateAccountTracker = async (accountTracker, blockNumber) => {
     }
 };
 
-const populateAccountMarkets = (allAccounts, markets, blockNumber) => {
+const populateAccountMarkets = async (allAccounts, markets, blockNumber) => {
     let ethPrice = marketsGlobal[CETH_ADDRESS]._data.underlyingPrice;
 
     let index = 0;
@@ -1158,7 +1158,7 @@ const populateAccountMarkets = (allAccounts, markets, blockNumber) => {
         }
 
         if ((index++ % 1000) == 0) {
-            validateAccountTracker(accountTracker, blockNumber);
+            await validateAccountTracker(accountTracker, blockNumber);
         }
     }
     
@@ -1641,7 +1641,7 @@ const run = async () => {
     }
 
     // Setup accounts with markets
-    populateAccountMarkets(accountsData, markets, startBlock);
+    await populateAccountMarkets(accountsData, markets, startBlock);
 
     // After fetching accounts since rest service fails spuriously
     await loadUniswapPairs(Object.values(markets).map((market) => market._data.underlyingToken));
