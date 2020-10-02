@@ -286,10 +286,13 @@ const validateAccountShortfall = (accountAddress, accountShortfall, blockNumber)
 
     comptrollerContractGlobal.getAccountLiquidity(accountAddress, { blockTag: blockNumber }).then((result) => {
         let [_, liquidity, shortfall] = result;
+
         if (!accountShortfall.eq(shortfall)) {
             console.log(constants.CONSOLE_RED, `ACCOUNT ${accountAddress} shortfall ${ethers.utils.formatEther(accountShortfall)} vs actual ${ethers.utils.formatEther(shortfall)}`);
             throw new Error('account liquidity incorrect');
         }
+
+        console.log(constants.CONSOLE_GREEN, `VALIDATED ACCOUNT ${accountAddress} SHORTFALL ${ethers.formatEther(accountShortfall)}`);
     });
 };
 
