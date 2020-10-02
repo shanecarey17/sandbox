@@ -276,6 +276,21 @@ const logLiquidationCandidate = (account, accountShortfall, accountMarketData, c
     console.log(`++ SHORTFALL ${ethToken.formatAmount(accountShortfall)}`);
 };
 
+const validateFlagGlobal = process.env.VALIDATE_SHORTFALL ? true : false;
+const validateAccountShortfall = (accountAddress, accountShortfall) => {
+    if (!validateFlagGlobal) {
+        return;
+    }
+
+    comptrollerContractGlobal.getAccountLiquidity(accountAddress).then((result) => {
+        let [_, _, shortfall] = result;
+        if (accountShortfall.eq(shortfall)) {
+            console.log(constants.CONSOLE_RED, `ACCOUNT ${account.address} shortfall ${ethers.utils.formatEther(accountShortfall)} vs actual ${ethers.utils.formatEther(shortfall)}`);
+            throw new Error('account liquidity incorrect');
+        }
+    });
+};
+
 const calculateAccountShortfall = (account) => {
     let ethToken = tokens.TokenFactory.getEthToken();
 
@@ -433,13 +448,8 @@ const calculateAccountShortfall = (account) => {
     logLiquidationCandidate(account, accountShortfall, accountMarketData, coinbaseEntries);
 
     if (coinbaseEntries.length == 0) {
-        comptrollerContractGlobal.getAccountLiquidity(account.address).then((result) => {
-            let [_, liquidity, shortfall] = result;
-            if (accountShortfall.eq(shortfall)) {
-                console.log(constants.CONSOLE_RED, `ACCOUNT ${account.address} shortfall ${ethers.utils.formatEther(accountShortfall)} vs actual ${ethers.utils.formatEther(shortfall)}`);
-                throw new Error('account liquidity incorrect');
-            }
-        });
+        // Can only validate against comptroller when no updated prices are used
+        validateAccountLiquidity(account.address, accountShortfall);
     }
 
     return [accountShortfall, maxBorrowedEthEntry, maxSuppliedEthEntry, coinbaseEntries];
@@ -1041,15 +1051,16 @@ const getAccount = (accountAddress) => {
                     borrowIndex: constants.ZERO,
                     entered: false
                 }];
-            })
-        );
+            }));
 
         this.totalBorrowedEth = () => {
             let totalBorrowedEth = constants.ZERO;
 
             for (let tracker of Object.values(this.markets)) {
-                if (!tracker.entered) {
-                    assert(tracker.borrows.eq(constants.ZERO));
+                if (!tracker.entered && !tracker.borrows.eq(constants.ZERO)) {
+                    let borrowedFmt = this.underlyingToken.formatAmount(tracker.borrows);
+                    console.log(constants.CONSOLE_RED, `ACCOUNT ${this.address} NOT ENTERED MARKET ${this.token.symbol} BUT BORROWS ${borrowedFmt}`);
+                    throw new Error('invalid borrow for account');
                 }
 
                 if (tracker.borrows.eq(constants.ZERO)) {
@@ -1074,6 +1085,7 @@ const getAccount = (accountAddress) => {
             
             for (let tracker of Object.values(this.markets)) {
                 if (!tracker.entered) {
+                    // Supplied only serves as collateral for entered markets
                     continue;
                 }
 
