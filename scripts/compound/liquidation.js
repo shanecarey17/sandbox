@@ -1121,8 +1121,8 @@ const validateAccountTracker = async (accountTracker, blockNumber) => {
         let snapshot = await marketData.contract.getAccountSnapshot(accountTracker.address, { blockTag: blockNumber });
         let [err, cTokenBalance, borrowBalance, exchangeRate] = snapshot; 
 
-        assert(cTokenBalance.eq(market.tokens), `ACCOUNT ${accountTracker.address} INCORRECT CTOKEN BALANCE ${marketData.token.formatAmount(market.tokens)} vs actual ${marketData.token.formatAmount(cTokenBalance)}`);
-        assert(borrowBalance.eq(market.getBorrowBalance()), `ACCOUNT ${accountTracker.address} INCORRECT BORROW BALANCE ${marketData.token.formatAmount(market.getBorrowBalance())} vs actual ${marketData.token.formatAmount(borrowBalance)}`);
+        assert(cTokenBalance.eq(market.tokens), `ACCOUNT ${accountTracker.address} INCORRECT CTOKEN BALANCE ${marketData.token.formatAmount(market.tokens)} vs actual ${marketData.token.formatAmount(cTokenBalance)} FOR MARKET ${marketData.token.symbol} ${marketData.address}`);
+        assert(borrowBalance.eq(market.getBorrowBalance()), `ACCOUNT ${accountTracker.address} INCORRECT BORROW BALANCE ${marketData.token.formatAmount(market.getBorrowBalance())} vs actual ${marketData.token.formatAmount(borrowBalance)} FOR MARKET ${marketData.token.symbol} ${marketData.address}`);
     }
 };
 
