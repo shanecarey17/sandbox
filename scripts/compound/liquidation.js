@@ -283,9 +283,9 @@ const validateAccountShortfall = (accountAddress, accountShortfall) => {
     }
 
     comptrollerContractGlobal.getAccountLiquidity(accountAddress).then((result) => {
-        let [_, _, shortfall] = result;
+        let [_, liquidity, shortfall] = result;
         if (accountShortfall.eq(shortfall)) {
-            console.log(constants.CONSOLE_RED, `ACCOUNT ${account.address} shortfall ${ethers.utils.formatEther(accountShortfall)} vs actual ${ethers.utils.formatEther(shortfall)}`);
+            console.log(constants.CONSOLE_RED, `ACCOUNT ${accountAddress} shortfall ${ethers.utils.formatEther(accountShortfall)} vs actual ${ethers.utils.formatEther(shortfall)}`);
             throw new Error('account liquidity incorrect');
         }
     });
@@ -449,7 +449,7 @@ const calculateAccountShortfall = (account) => {
 
     if (coinbaseEntries.length == 0) {
         // Can only validate against comptroller when no updated prices are used
-        validateAccountLiquidity(account.address, accountShortfall);
+        validateAccountShortfall(account.address, accountShortfall);
     }
 
     return [accountShortfall, maxBorrowedEthEntry, maxSuppliedEthEntry, coinbaseEntries];
@@ -523,7 +523,7 @@ const checkUpdatedAccounts = () => {
     }
 
     accountsUpdatedGlobal = {};
-}
+};
 
 const doLiquidation = () => {
     // Do this here first so we have updated
