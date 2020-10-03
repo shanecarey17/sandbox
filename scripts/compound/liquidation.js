@@ -1126,7 +1126,11 @@ const validateAccountTracker = async (accountTracker, blockNumber) => {
         let snapshot = await marketData.contract.getAccountSnapshot(accountTracker.address, { blockTag: blockNumber });
         let [err, cTokenBalance, borrowBalance, exchangeRate] = snapshot; 
 
-	let mappingKey = ethers.utils.keccak256([accountTracker.address, 19]);
+	let hexKey = ethers.utils.hexZeroPad(accountTracker.address, 32); 
+        let hexIndex = ethers.utils.hexZeroPad(ethers.BigNumber.from(19).toHexString(), 32);
+	let mappingKeyPreimage = ethers.utils.concat([hexKey, hexIndex]);
+	let mappingKey = ethers.utils.keccak256(mappingKeyPreimage);
+
 	let borrowSnapshot = await ethers.provider.getStorageAt(marketData.address, mappingKey, blockNumber);
         let [principal, borrowIndex] = ethers.utils.defaultAbiCoder.decode(['uint64', 'uint64'], borrowSnapshot);
 
