@@ -707,9 +707,9 @@ const getMarkets = async (blockNumber) => {
         } else {
             underlyingToken = tokens.TokenFactory.getEthToken();
         }
-	
-	// some fields are incorrect from graphql?
-	let actualBorrowIndex = await marketContract.borrowIndex({ blockTag: blockNumber });
+        
+        // some fields are incorrect from graphql?
+        let actualBorrowIndex = await marketContract.borrowIndex({ blockTag: blockNumber });
 
         marketContract._data = new (function() {
             this.address = marketAddress;
@@ -930,13 +930,13 @@ const getMarkets = async (blockNumber) => {
             // End constructor
         })();
 
-	assert(actualBorrowIndex.eq(marketContract._data.borrowIndex), `INCORRECT BORROW INDEX ${marketContract._data.borrowIndex} vs actual ${actualBorrowIndex}`);
+        assert(actualBorrowIndex.eq(marketContract._data.borrowIndex), `INCORRECT BORROW INDEX ${marketContract._data.borrowIndex} vs actual ${actualBorrowIndex}`);
 
-	/*
-	let localExchRate = marketContract._data.getExchangeRate();
-	let actualExchRate = await marketContract.exchangeRateStored({ blockTag: blockNumber });
+        /*
+        let localExchRate = marketContract._data.getExchangeRate();
+        let actualExchRate = await marketContract.exchangeRateStored({ blockTag: blockNumber });
         assert(localExchRate.eq(actualExchRate), `INCORRECT EXCHANGE RATE ${localExchRate} vs actual ${actualExchRate}`);
-	*/
+        */
 
         allMarkets[marketAddress] = marketContract;
     }
@@ -1060,7 +1060,7 @@ const getAccount = (accountAddress) => {
                     this.borrows = constants.ZERO;
                     this.borrowIndex = constants.ZERO;
                     this.entered = false;
-		    this.blockNumber = constants.ZERO;
+                    this.blockNumber = constants.ZERO;
 
                     this.getBorrowBalance = () => {
                         if (this.borrowIndex.eq(constants.ZERO)) {
@@ -1126,16 +1126,16 @@ const validateAccountTracker = async (accountTracker, blockNumber) => {
         let snapshot = await marketData.contract.getAccountSnapshot(accountTracker.address, { blockTag: blockNumber });
         let [err, cTokenBalance, borrowBalance, exchangeRate] = snapshot; 
 
-	let hexKey = ethers.utils.hexZeroPad(accountTracker.address, 32); 
+        let hexKey = ethers.utils.hexZeroPad(accountTracker.address, 32); 
         let hexIndex = ethers.utils.hexZeroPad(ethers.BigNumber.from(19).toHexString(), 32);
-	let mappingKeyPreimage = ethers.utils.concat([hexKey, hexIndex]);
-	let mappingKey = ethers.utils.keccak256(mappingKeyPreimage);
+        let mappingKeyPreimage = ethers.utils.concat([hexKey, hexIndex]);
+        let mappingKey = ethers.utils.keccak256(mappingKeyPreimage);
 
-	let borrowSnapshot = await ethers.provider.getStorageAt(marketData.address, mappingKey, blockNumber);
+        let borrowSnapshot = await ethers.provider.getStorageAt(marketData.address, mappingKey, blockNumber);
         let [principal, borrowIndex] = ethers.utils.defaultAbiCoder.decode(['uint64', 'uint64'], borrowSnapshot);
 
-	assert(principal.eq(market.borrows), `ACCOUNT ${accountTracker.address} INCORRECT PRINCIPAL ${market.borrows} vs actual ${principal} FOR MARKET ${marketData.token.symbol} ${marketData.address}`);
-	assert(borrowIndex.eq(market.borrowIndex), `ACCOUNT ${accountTracker.address} INCORRECT BORROW INDEX ${market.borrowIndex} vs actual ${borrowIndex} FOR MARKET ${marketData.token.symbol} ${marketData.address}`);
+        assert(principal.eq(market.borrows), `ACCOUNT ${accountTracker.address} INCORRECT PRINCIPAL ${market.borrows} vs actual ${principal} FOR MARKET ${marketData.token.symbol} ${marketData.address}`);
+        assert(borrowIndex.eq(market.borrowIndex), `ACCOUNT ${accountTracker.address} INCORRECT BORROW INDEX ${market.borrowIndex} vs actual ${borrowIndex} FOR MARKET ${marketData.token.symbol} ${marketData.address}`);
         assert(cTokenBalance.eq(market.tokens), `ACCOUNT ${accountTracker.address} INCORRECT CTOKEN BALANCE ${marketData.token.formatAmount(market.tokens)} vs actual ${marketData.token.formatAmount(cTokenBalance)} FOR MARKET ${marketData.token.symbol} ${marketData.address}`);
         assert(borrowBalance.eq(market.getBorrowBalance()), `ACCOUNT ${accountTracker.address} INCORRECT BORROW BALANCE ${market.getBorrowBalance()} vs actual ${borrowBalance} FOR MARKET ${marketData.token.symbol} ${marketData.address}`);
     }
@@ -1162,41 +1162,41 @@ const populateAccountMarkets = async (allAccounts, markets, blockNumber) => {
             marketTracker.tokens = marketData.token.parseAmount(acctToken.cTokenBalance);
             marketTracker.borrowIndex = ethers.utils.parseEther(acctToken.accountBorrowIndex);
 
-	    // Looks like this actually includes interest
+            // Looks like this actually includes interest
             marketTracker.borrows = marketData.underlyingToken.parseAmount(acctToken.storedBorrowBalance);
 
             assert(marketTracker.blockNumber.eq(constants.ZERO), 'two blocks for account market');
-	    marketTracker.blockNumber = acctToken.accrualBlockNumber;
+            marketTracker.blockNumber = acctToken.accrualBlockNumber;
 
-	    if (!marketTracker.entered && !marketTracker.borrows.eq(constants.ZERO)) {
-		let borrowedFmt = marketTracker.marketData.underlyingToken.formatAmount(marketTracker.borrows);
-		console.log(account);
-		console.log(constants.CONSOLE_RED, `ACCOUNT ${accountAddress} NOT ENTERED MARKET ${marketData.token.symbol} ${marketData.address} BUT BORROWS ${borrowedFmt}`);
+            if (!marketTracker.entered && !marketTracker.borrows.eq(constants.ZERO)) {
+                let borrowedFmt = marketTracker.marketData.underlyingToken.formatAmount(marketTracker.borrows);
+                console.log(account);
+                console.log(constants.CONSOLE_RED, `ACCOUNT ${accountAddress} NOT ENTERED MARKET ${marketData.token.symbol} ${marketData.address} BUT BORROWS ${borrowedFmt}`);
 
-		// sometimes the entered market is incorrect, verify with the chain
-		let overrides = { blockTag: blockNumber };
-	        let actualMarketEntered = await comptrollerContractGlobal.checkMembership(accountAddress, marketData.address, overrides);
-		if (actualMarketEntered) {
-		    let actualBorrowStored = await marketData.contract.borrowBalanceStored(accountAddress, overrides);
-		    let localBorrowBalance = marketTracker.getBorrowBalance();
+                // sometimes the entered market is incorrect, verify with the chain
+                let overrides = { blockTag: blockNumber };
+                let actualMarketEntered = await comptrollerContractGlobal.checkMembership(accountAddress, marketData.address, overrides);
+                if (actualMarketEntered) {
+                    let actualBorrowStored = await marketData.contract.borrowBalanceStored(accountAddress, overrides);
+                    let localBorrowBalance = marketTracker.getBorrowBalance();
                     assert(actualBorrowStored.eq(localBorrowBalance), `GRAPHQL GIVES INCORRECT BORROW BALANCE ${marketData.underlyingToken.formatAmount(marketTracker.borrows)} VS ${marketData.underlyingToken.formatAmount(actualBorrowStored)}`);
                 }
-	        marketTracker.entered = actualMarketEntered;
-		marketTracker.borrows = constants.ZERO;
-	    }
+                marketTracker.entered = actualMarketEntered;
+                marketTracker.borrows = constants.ZERO;
+            }
         }
 
         // if the account has enough borrowed, track it
         let totalBorrowedEth = accountTracker.totalBorrowedEth();
         if (totalBorrowedEth.gte(BORROW_ETH_THRESHOLD)) {
             //console.log(`CANDIDATE ACCOUNT ${accountAddress} BORROWS ${ethers.utils.formatEther(totalBorrowedEth)} ETH`);
-	    console.log(account);
+            console.log(account);
             await validateAccountTracker(accountTracker, blockNumber);
             candidateAccountsGlobal[accountAddress] = totalBorrowedEth; // TODO do we need to store this value?
         }
 
         if ((index++ % 1000) == 0) {
-	    console.log(account);
+            console.log(account);
             await validateAccountTracker(accountTracker, blockNumber);
         }
     }
