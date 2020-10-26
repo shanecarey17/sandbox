@@ -1,4 +1,5 @@
-docker kill $(cat container.txt)
+docker stop $(cat container.txt)
+docker rm $(cat container.txt)
 docker build -t liquidator .
 docker run \
 	-d \
